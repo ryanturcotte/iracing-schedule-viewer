@@ -190,9 +190,10 @@ const App = () => {
             if (file.type.startsWith('application/pdf')) return file;
         }
         try {
-            // Update this during GitHub release, to /repo-name/public/schedules/filename
-            // List in dropdown is around line 148
-            const response = await fetch(`/schedules/${fileName}`); // e.g. /repo-name/public/schedules/filename
+            // Files are expected in 'public/schedules/' in source, deployed to 'schedules/' at the base URL.
+            // import.meta.env.BASE_URL is set by Vite based on the 'base' config (e.g., '/iracing-schedule-viewer/').
+            const scheduleFileUrl = `${import.meta.env.BASE_URL}schedules/${fileName}`;
+            const response = await fetch(scheduleFileUrl);
             if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
             if (fileName.endsWith('.json')) return await response.json();
             if (fileName.endsWith('.pdf')) {
