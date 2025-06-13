@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { CSSTransition, TransitionGroup } from 'react-transition-group';
+import { trackNameReplacements, trackConfigReplacements, carConfigReplacements } from './trackMappings';
 
 // PDF Parsing Logic - Re-engineered for column-based parsing
 const parsePdfData = async (pdfFile) => {
@@ -161,10 +162,45 @@ const App = () => {
     const [showSearchInput, setShowSearchInput] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     const [allSeriesSelected, setAllSeriesSelected] = useState(false);
+    const [isMinimizerActive, setIsMinimizerActive] = useState(false); // State for minimizer
     
     const licenseLevelMap = { 1: 'Rookie', 2: 'D', 3: 'C', 4: 'B', 5: 'A', 0: 'Unknown' };
     const licenseColorMap = { 'Rookie': 'bg-red-500 text-white', 'D': 'bg-orange-500 text-white', 'C': 'bg-yellow-300 text-gray-800', 'B': 'bg-green-500 text-white', 'A': 'bg-blue-500 text-white', 'Unknown': 'bg-gray-400 text-white' };
     
+    // Helper to escape special characters for RegExp
+    const escapeRegExp = (string) => {
+        return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // $& means the whole matched string
+    };
+
+    const applyReplacements = useCallback((text, replacementsList) => {
+        if (!text || typeof text !== 'string' || !isMinimizerActive) return text;
+        let newText = text;
+        for (const rule of replacementsList) {
+            // Using RegExp for case-insensitive global replacement
+            newText = newText.replace(new RegExp(escapeRegExp(rule.original), 'gi'), rule.replacement);
+        }
+        return newText;
+    }, [isMinimizerActive]);
+
+    const applyCarListReplacements = useCallback((weeklyCarsString, replacementsList) => {
+        if (!weeklyCarsString || typeof weeklyCarsString !== 'string' || !isMinimizerActive) return weeklyCarsString;
+
+        // Split by common delimiters, apply replacements to each part, then rejoin.
+        // This handles "Car A vs Car B" or "Car A / Car B"
+        const delimiters = /(\s+vs\s+|\s*\/\s*|\s*,\s*)/i; // Regex to split by "vs", "/", or "," keeping delimiters for rejoining if needed, but we'll use a standard one.
+        const parts = weeklyCarsString.split(delimiters);
+        const processedParts = [];
+
+        for (let i = 0; i < parts.length; i++) {
+            if (i % 2 === 0) { // Car name part
+                processedParts.push(applyReplacements(parts[i].trim(), replacementsList));
+            } else { // Delimiter part - we'll standardize to " / "
+                // We are not keeping original delimiters, but standardizing to " / " if multiple cars
+            }
+        }
+        return processedParts.filter(p => p.trim() !== '').join(' / '); // Join valid processed car names with " / "
+    }, [isMinimizerActive, applyReplacements]); // applyReplacements is already memoized with isMinimizerActive
+
     const processAndSetData = useCallback((data) => {
         if (!Array.isArray(data)) { return []; }
         const newCarIdMap = new Map();
@@ -330,11 +366,56 @@ const App = () => {
             for (let i = 0; i < 12; i++) {
                 const schedule = series.schedules.find(s => s.race_week_num === i);
                 let cellData = '';
-                if(schedule) {
-                    if ((series.season_name.includes("Draft Master") || series.season_name.includes("Ring Meister")) && schedule.weekly_cars) {
-                        cellData = schedule.weekly_cars;
+
+                if (schedule) {
+                    let trackPart = '';
+                    let configPart = '';
+                    let weeklyCarsPart = ''; // For Draft Master/Ring Meister
+
+                    // 1. Extract parts based on data structure
+                    if (schedule.track && typeof schedule.track === 'object' && schedule.track.track_name) { // JSON data
+                        trackPart = schedule.track.track_name;
+                        configPart = schedule.track.config_name || '';
+                    } else if (schedule.track_name) { // PDF-like data (track_name is a string "Track - Config")
+                        const separator = " - ";
+                        const separatorIndex = schedule.track_name.lastIndexOf(separator);
+                        if (separatorIndex !== -1) {
+                            trackPart = schedule.track_name.substring(0, separatorIndex);
+                            configPart = schedule.track_name.substring(separatorIndex + separator.length);
+                        } else {
+                            trackPart = schedule.track_name; // Assume whole string is track if no separator
+                        }
+                    }
+
+                    const isSpecialSeries = series.season_name.includes("Draft Master") || series.season_name.includes("Ring Meister");
+                    if (isSpecialSeries && schedule.weekly_cars) {
+                        weeklyCarsPart = schedule.weekly_cars; // This will be handled by carConfigReplacements later
+                    }
+
+                    // 2. Apply minimizer if active (for track and track config)
+                    if (isMinimizerActive) {
+                        trackPart = applyReplacements(trackPart, trackNameReplacements);
+                        configPart = applyReplacements(configPart, trackConfigReplacements);
+                        // weeklyCarsPart will be minimized specifically for Draft Master/Ring Meister below
+                    }
+
+                    // 3. Construct cellData
+                    if (isSpecialSeries) {
+                        const minimizedCars = applyCarListReplacements(weeklyCarsPart, carConfigReplacements);
+                        if (series.season_name.includes("Draft Master")) {
+                            let displayTrack = trackPart;
+                            if (configPart && configPart.toLowerCase() !== 'oval' && configPart.toLowerCase() !== 'n/a' && configPart.trim() !== '') {
+                                displayTrack += ` - ${configPart}`;
+                            }
+                            cellData = `${displayTrack} - ${minimizedCars}`;
+                        } else if (series.season_name.includes("Ring Meister")) {
+                            cellData = minimizedCars;
+                        }
                     } else {
-                        cellData = schedule.track?.track_name || '';
+                        cellData = trackPart;
+                        if (configPart && configPart.toLowerCase() !== 'oval' && configPart.toLowerCase() !== 'n/a' && configPart.trim() !== '') {
+                            cellData += ` - ${configPart}`;
+                        }
                     }
                 }
                 dataRows[`Track${i+1}`].push(cellData);
@@ -353,7 +434,7 @@ const App = () => {
         document.body.removeChild(link);
         setMessage('CSV generated successfully!');
 
-    }, [seasonsData, selectedSeriesIds, getCarsForWeek]);
+    }, [seasonsData, selectedSeriesIds, getCarsForWeek, isMinimizerActive, applyReplacements, applyCarListReplacements]);
 
     const generateCalendarTable = useCallback(() => {
         const selected = seasonsData.filter(season => selectedSeriesIds.has(season.series_id || season.season_name));
@@ -364,9 +445,9 @@ const App = () => {
         setTableSeriesData(selected);
         setShowCalendarTable(true);
         setMessage('Calendar table generated!');
-    }, [seasonsData, selectedSeriesIds]);
+    }, [seasonsData, selectedSeriesIds]); // isMinimizerActive & applyReplacements are passed to CalendarTable, not used directly here
 
-    const CalendarTable = React.forwardRef(({ seriesData, isDarkMode, getCarsForWeek }, ref) => {
+    const CalendarTable = React.forwardRef(({ seriesData, isDarkMode, getCarsForWeek, applyReplacements, isMinimizerActive }, ref) => {
         if (!seriesData || seriesData.length === 0) return null;
         
         const allSchedules = seriesData.flatMap(s => s.schedules);
@@ -405,22 +486,71 @@ const App = () => {
                                     <td className={`px-6 py-4 whitespace-nowrap text-sm font-medium ${isDarkMode ? 'text-neutral-100' : 'text-gray-900'} text-center`}>{i + 1}</td>
                                     {seriesData.map(season => {
                                         const schedule = season.schedules?.find(s => s.startDateObj >= week.start && s.startDateObj <= week.end);
-                                        let cellContent = 'N/A';
+                                        let cellContentHtml = 'N/A';
                                         if (schedule) {
-                                            const trackName = schedule.track?.track_name || 'N/A';
-                                            const rainChance = schedule.track?.rain_chance || 0;
-                                            
-                                            const isSpecialSeries = season.season_name.includes('Draft Master') || season.season_name.includes('Ring Meister');
-                                            const subtext = isSpecialSeries ? schedule.weekly_cars : schedule.laps;
+                                            let trackPart = '';
+                                            let configPart = '';
+                                            let weeklyCarsPart = ''; // For Draft/Ring Meister
 
-                                            let trackDisplay = `<span class="font-semibold">${trackName}</span>`;
-                                            if (rainChance > 0) {
-                                                trackDisplay += `<span class="text-blue-400 ml-1">(${rainChance}%)</span>`;
+                                            // 1. Extract parts
+                                            if (schedule.track && typeof schedule.track === 'object' && schedule.track.track_name) { // JSON
+                                                trackPart = schedule.track.track_name;
+                                                configPart = schedule.track.config_name || '';
+                                            } else if (schedule.track_name) { // PDF-like
+                                                const separator = " - ";
+                                                const separatorIndex = schedule.track_name.lastIndexOf(separator);
+                                                if (separatorIndex !== -1) {
+                                                    trackPart = schedule.track_name.substring(0, separatorIndex);
+                                                    configPart = schedule.track_name.substring(separatorIndex + separator.length);
+                                                } else {
+                                                    trackPart = schedule.track_name;
+                                                }
                                             }
 
-                                            cellContent = `<div class="flex flex-col">${trackDisplay}<span class="text-xs ${isDarkMode ? 'text-neutral-400' : 'text-gray-600'}">${subtext || ''}</span></div>`;
+                                            const isSpecialSeries = season.season_name.includes('Draft Master') || season.season_name.includes('Ring Meister');
+                                            if (isSpecialSeries && schedule.weekly_cars) {
+                                                weeklyCarsPart = schedule.weekly_cars; // Will be processed by carConfigReplacements later
+                                            }
+
+                                            // 2. Apply minimizer (for track and track config)
+                                            if (isMinimizerActive) {
+                                                trackPart = applyReplacements(trackPart, trackNameReplacements);
+                                                configPart = applyReplacements(configPart, trackConfigReplacements);
+                                                // weeklyCarsPart for special series will be minimized below
+                                            }
+
+                                            // 3. Construct display parts
+                                            let trackNameForDisplay;
+                                            let subTextForDisplay = '';
+
+                                            if (isSpecialSeries) {
+                                                const minimizedCars = applyCarListReplacements(weeklyCarsPart, carConfigReplacements);
+                                                if (season.season_name.includes("Draft Master")) {
+                                                    trackNameForDisplay = trackPart; // Already minimized if active
+                                                    if (configPart && configPart.toLowerCase() !== 'oval' && configPart.toLowerCase() !== 'n/a' && configPart.trim() !== '') {
+                                                        trackNameForDisplay += ` - ${configPart}`; // Already minimized if active
+                                                    }
+                                                    subTextForDisplay = minimizedCars; // Car type as subtext
+                                                } else if (season.season_name.includes("Ring Meister")) {
+                                                    trackNameForDisplay = minimizedCars; // Only car type
+                                                    // subTextForDisplay remains empty or could be track if desired, but request implies only car type
+                                                }
+                                            } else {
+                                                trackNameForDisplay = trackPart;
+                                                if (configPart && configPart.toLowerCase() !== 'oval' && configPart.toLowerCase() !== 'n/a' && configPart.trim() !== '') {
+                                                    trackNameForDisplay += ` - ${configPart}`;
+                                                }
+                                                subTextForDisplay = schedule.laps ? `${schedule.laps} laps` : '';
+                                            }
+
+                                            const rainChance = schedule.rain_chance || schedule.track?.rain_chance || 0;
+                                            let trackDisplayHtml = `<span class="font-semibold">${trackNameForDisplay || 'N/A'}</span>`;
+                                            if (rainChance > 0) {
+                                                trackDisplayHtml += `<span class="text-blue-400 ml-1">(${rainChance}%)</span>`;
+                                            }
+                                            cellContentHtml = `<div class="flex flex-col">${trackDisplayHtml}<span class="text-xs ${isDarkMode ? 'text-neutral-400' : 'text-gray-600'}">${subTextForDisplay || ''}</span></div>`;
                                         }
-                                        return <td key={`${season.series_id || season.season_name}-${i}`} className={`px-3 py-4 whitespace-nowrap text-sm ${isDarkMode ? 'text-neutral-100' : 'text-gray-500'}`} dangerouslySetInnerHTML={{ __html: cellContent }}></td>;
+                                        return <td key={`${season.series_id || season.season_name}-${i}`} className={`px-3 py-4 whitespace-nowrap text-sm ${isDarkMode ? 'text-neutral-100' : 'text-gray-500'}`} dangerouslySetInnerHTML={{ __html: cellContentHtml }}></td>;
                                     })}
                                 </tr>
                             ))}
@@ -477,9 +607,18 @@ const App = () => {
                         <div className={`mb-8 p-6 shadow-inner ${isDarkMode ? 'bg-neutral-800' : 'bg-gray-50'}`}>
                             <div className="flex items-center mb-4">
                                 <h2 className={`text-2xl font-semibold ${isDarkMode ? 'text-neutral-200' : 'text-gray-700'}`}>Available Series ({filteredSeries.length})</h2>
-                                <label className="flex items-center ml-auto space-x-2 cursor-pointer">
+                                <label className="flex items-center ml-auto space-x-2 cursor-pointer mr-4">
                                     <input type="checkbox" checked={allSeriesSelected} onChange={handleSelectAllChange} className="form-checkbox h-5 w-5 text-blue-600 rounded focus:ring-blue-500"/>
                                     <span className={`${isDarkMode ? 'text-neutral-100' : 'text-gray-700'}`}>Select All</span>
+                                </label>
+                                <label className="flex items-center space-x-2 cursor-pointer">
+                                    <input
+                                        type="checkbox"
+                                        checked={isMinimizerActive}
+                                        onChange={() => setIsMinimizerActive(prev => !prev)}
+                                        className="form-checkbox h-5 w-5 text-blue-600 rounded focus:ring-blue-500"
+                                    />
+                                    <span className={`${isDarkMode ? 'text-neutral-100' : 'text-gray-700'}`}>Minimize Track Names</span>
                                 </label>
                                 <button onClick={handleSearchToggle} className="ml-3 p-1 rounded-full"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.197 5.197a7.5 7.5 0 0 0 10.607 10.607Z" /></svg></button>
                                 <input type="text" placeholder="Search..." value={searchTerm} onChange={handleSearchChange} className={`ml-4 px-3 border rounded-md shadow-sm transition-all ${showSearchInput ? 'w-64 opacity-100' : 'w-0 opacity-0'} ${isDarkMode ? 'bg-neutral-700' : 'bg-white'}`} />
@@ -524,7 +663,7 @@ const App = () => {
                  <TransitionGroup>
                   {showCalendarTable && tableSeriesData.length > 0 && (
                     <CSSTransition nodeRef={calendarTableRef} key="calendar-table-transition" timeout={500} classNames="table-appear">
-                      <CalendarTable ref={calendarTableRef} seriesData={tableSeriesData} isDarkMode={isDarkMode} getCarsForWeek={getCarsForWeek} />
+                      <CalendarTable ref={calendarTableRef} seriesData={tableSeriesData} isDarkMode={isDarkMode} getCarsForWeek={getCarsForWeek} applyReplacements={applyReplacements} isMinimizerActive={isMinimizerActive} />
                     </CSSTransition>
                   )}
                 </TransitionGroup>
