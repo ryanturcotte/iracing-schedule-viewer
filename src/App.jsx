@@ -877,9 +877,14 @@ const App = () => {
                             {isLoading ? 'Loading...' : 'Load Data'}
                         </button>
                     </div>
-                    <div className="mt-4 text-center">
-                        <span className={`text-sm ${isDarkMode ? 'text-neutral-400' : 'text-gray-600'}`}>or upload a custom file:</span>
-                        <input type="file" accept=".json,.pdf" onChange={handleFileChange} className={`block w-full text-sm mt-2 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold ${isDarkMode ? 'text-neutral-300 file:bg-neutral-700 file:text-neutral-200' : 'file:bg-blue-50 file:text-blue-700'}`} />
+                    <div className="mt-4 flex items-center justify-between">
+                        <div>
+                            <span className={`text-sm ${isDarkMode ? 'text-neutral-400' : 'text-gray-600'}`}>or upload a custom file:</span>
+                            <input type="file" accept=".json,.pdf" onChange={handleFileChange} className={`block w-full text-sm mt-1 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold ${isDarkMode ? 'text-neutral-300 file:bg-neutral-700 file:text-neutral-200' : 'file:bg-blue-50 file:text-blue-700'}`} />
+                        </div>
+                        <a href={`${import.meta.env.BASE_URL}excel template/Template.xlsx`} download="iRacing_Schedule_Template.xlsx" className={`text-sm font-medium px-4 py-2 rounded-md shadow-sm ${isDarkMode ? 'bg-green-700 hover:bg-green-600 text-white' : 'bg-green-500 hover:bg-green-600 text-white'}`}>
+                            Download Excel Template
+                        </a>
                     </div>
                 </div>
 
