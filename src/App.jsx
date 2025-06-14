@@ -567,11 +567,36 @@ const App = () => {
         <div className={`min-h-screen p-4 font-inter transition-colors duration-300 ${isDarkMode ? 'bg-neutral-950 text-neutral-100' : 'bg-gray-100 text-gray-800'}`}>
             <style>{`::selection { background-color: #3b82f6; color: #ffffff; } .fade-enter { opacity: 0; } .fade-enter-active { opacity: 1; transition: opacity 200ms; } .fade-exit { opacity: 1; } .fade-exit-active { opacity: 0; transition: opacity 200ms; } .table-appear { opacity: 0; transform: translateY(20px); } .table-appear-active { opacity: 1; transform: translateY(0); transition: opacity 300ms, transform 300ms; } `}</style>
             <div className={`max-w-7xl mx-auto shadow-lg p-6 sm:p-8 transition-colors duration-300 ${isDarkMode ? 'bg-neutral-900' : 'bg-white'}`}>
-                <h1 className={`text-3xl sm:text-4xl font-bold text-center mb-8 ${isDarkMode ? 'text-neutral-100' : 'text-blue-700'}`}>iRacing Schedule Viewer and Spreadsheet Creator</h1>
+
+                <h1 className={`text-3xl sm:text-4xl font-bold text-center mb-8 ${isDarkMode ? 'text-neutral-100' : 'text-blue-700'}`}>iRacing Schedule Viewer and Spreadsheet Creator
+                    <button
+                        onClick={() => setIsDarkMode(prevMode => !prevMode)}
+                        className={`p-2 m-2 rounded-full shadow-md hover:shadow-lg transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-blue-500
+                        ${isDarkMode
+                            ? 'bg-neutral-800 text-neutral-200' // Dark mode active: dark button, light icon (sun) is light
+                            : 'bg-gray-200 text-gray-800' // Light mode active: light button, icon (moon) needs to be visible
+                        }`
+                        }
+                        title={isDarkMode ? "Switch to Light Mode" : "Switch to Dark Mode"}
+                    >
+                        {isDarkMode ? (
+                        // Sun icon for light mode (displayed when in dark mode, to toggle to light mode)
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="size-6">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v2.25m6.364.386-1.591 1.591M21 12h-2.25m-.386 6.364-1.591-1.591M12 18.75V21m-4.773-4.227-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0Z" />
+                        </svg>
+                        ) : (
+                        // Moon icon for dark mode (displayed when in light mode, to toggle to dark mode)
+                        // Added explicit stroke="black" to ensure visibility in light mode.
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="black">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9 9 0 008.354-5.646z" />
+                        </svg>
+                        )}
+                    </button>
+                </h1>           
                 <div className={`mb-8 p-6 shadow-inner ${isDarkMode ? 'bg-neutral-800' : 'bg-yellow-50'}`}>
                     <h2 className={`text-2xl font-semibold mb-4 ${isDarkMode ? 'text-yellow-300' : 'text-yellow-700'}`}>1. Select Data Source</h2>
                     <div className="flex items-center gap-4">
-                        <select value={selectedDataSource} onChange={e => setSelectedDataSource(e.target.value)} className={`flex-grow p-2 border rounded-md shadow-xs ${isDarkMode ? 'bg-neutral-700 border-neutral-600' : 'bg-white border-gray-300'}`}>
+                        <select value={selectedDataSource} onChange={e => setSelectedDataSource(e.target.value)} className={`grow p-2 border rounded-md shadow-xs ${isDarkMode ? 'bg-neutral-700 border-neutral-600' : 'bg-white border-gray-300'}`}>
                             <option value="" disabled>Select a source...</option>
                             {availableFiles.map(file => <option key={file} value={file}>{file}</option>)}
                         </select>
