@@ -71,11 +71,13 @@ const parsePdfData = async (pdfFile) => {
 
             if (currentSeries) {
                  if (currentSeries.schedules.length === 0 && !line.startsWith('Week')) {
-                    const licenseRegex = /^(Rookie|Class\s+[A-D])\s+\(4\.0\)\s+-->/;
+                    const licenseRegex = /^(Rookie|Class\s+[A-D])\s+\((\d)\.0\)\s+-->/;
                     const licenseMatch = line.match(licenseRegex);
                     if (licenseMatch) {
                         let license = licenseMatch[1];
-                        if (license === 'Rookie') currentSeries.license_group = licenseClassMap['D'];
+                        let srNum = licenseMatch[2];
+                        if (license === 'Rookie' & srNum == '1') currentSeries.license_group = licenseClassMap['Rookie'];
+                        else if (license === 'Rookie') currentSeries.license_group = licenseClassMap['D'];
                         else if (license === 'Class D') currentSeries.license_group = licenseClassMap['C'];
                         else if (license === 'Class C') currentSeries.license_group = licenseClassMap['B'];
                         else if (license === 'Class B') currentSeries.license_group = licenseClassMap['A'];
