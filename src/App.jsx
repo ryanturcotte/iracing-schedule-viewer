@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { CSSTransition, TransitionGroup } from 'react-transition-group';
-import { trackNameReplacements, trackConfigReplacements, carConfigReplacements } from './trackMappings';
+import { trackNameReplacements, trackConfigReplacements, carConfigReplacements, timeReplacements } from './replacementMappings';
 
 // PDF Parsing Logic - Re-engineered for column-based parsing
 const parsePdfData = async (pdfFile) => {
@@ -64,7 +64,8 @@ const parsePdfData = async (pdfFile) => {
                     season_name: cleanedName,
                     license_group: 0,
                     schedules: [],
-                    car_types: []
+                    car_types: [],
+                    race_frequency: '' // Initialize race_frequency
                 };
                 continue;
             }
@@ -73,6 +74,10 @@ const parsePdfData = async (pdfFile) => {
                  if (currentSeries.schedules.length === 0 && !line.startsWith('Week')) {
                     const licenseRegex = /^(Rookie|Class\s+[A-D])\s+\((\d)\.0\)\s+-->/;
                     const licenseMatch = line.match(licenseRegex);
+
+                    const frequencyRegex = /^(Races\s+(?:every|at).*)$/i;
+                    const frequencyMatch = line.match(frequencyRegex);
+
                     if (licenseMatch) {
                         let license = licenseMatch[1];
                         let srNum = licenseMatch[2];
@@ -81,7 +86,9 @@ const parsePdfData = async (pdfFile) => {
                         else if (license === 'Class D') currentSeries.license_group = licenseClassMap['C'];
                         else if (license === 'Class C') currentSeries.license_group = licenseClassMap['B'];
                         else if (license === 'Class B') currentSeries.license_group = licenseClassMap['A'];
-                    } else if (!line.startsWith('Races') && !line.startsWith('Min entries') && !line.startsWith('Penalty') && !line.includes('See race week')) {
+                    } else if (frequencyMatch) {
+                        currentSeries.race_frequency = frequencyMatch[0].trim();
+                    } else if (!line.startsWith('Min entries') && !line.startsWith('Penalty') && !line.includes('See race week')) {
                         const existingCars = currentSeries.car_types[0]?.car_type || '';
                         currentSeries.car_types = [{car_type: (existingCars + ' ' + line).trim()}];
                     }
@@ -549,7 +556,8 @@ const App = () => {
         }
 
         selected.forEach(series => {
-            dataRows.Time.push(series.schedule_description || 'N/A');
+            const frequencyText = series.race_frequency ? applyReplacements(series.race_frequency, timeReplacements) : 'N/A';
+            dataRows.Time.push(frequencyText);
             dataRows.License.push(series.license_group_human_readable || 'N/A');
             dataRows.Style.push(series.track_types?.[0]?.track_type || 'N/A');
             dataRows.Name.push(series.season_name);
@@ -642,8 +650,7 @@ const App = () => {
         setShowCalendarTable(true);
         setMessage('Calendar table generated!');
     }, [seasonsData, selectedSeriesIds]); // isMinimizerActive & applyReplacements are passed to CalendarTable, not used directly here
-
-    const CalendarTable = React.forwardRef(({ seriesData, isDarkMode, getCarsForWeek, applyReplacements, isMinimizerActive }, ref) => {
+    const CalendarTable = React.forwardRef(({ seriesData, isDarkMode, getCarsForWeek, applyReplacements, isMinimizerActive, timeReplacements: localTimeReplacements }, ref) => {
         if (!seriesData || seriesData.length === 0) return null;
         
         const allSchedules = seriesData.flatMap(s => s.schedules);
@@ -673,7 +680,17 @@ const App = () => {
                         <thead className={isDarkMode ? 'bg-neutral-900' : 'bg-gray-50'}>
                             <tr>
                                 <th scope="col" className={`px-6 py-3 text-left text-xs font-medium ${isDarkMode ? 'text-neutral-300' : 'text-gray-500'} uppercase`}>Week</th>
-                                {seriesData.map(season => (<th key={season.series_id || season.season_name} scope="col" className={`px-3 py-3 text-left text-xs font-medium ${isDarkMode ? 'text-neutral-300' : 'text-gray-500'} uppercase`}>{season.season_name}</th>))}
+                                {seriesData.map(season => (
+                                    <th key={season.series_id || season.season_name} scope="col" className={`px-3 py-3 text-left text-xs font-medium ${isDarkMode ? 'text-neutral-300' : 'text-gray-500'} uppercase`}>
+                                        <div className="text-center">{season.season_name}</div> {/* Centered series name */}
+                                        {season.race_frequency && (
+                                            <div className={`text-[0.65rem] leading-tight ${isDarkMode ? 'text-neutral-400' : 'text-gray-400'} font-normal normal-case text-center`}> {/* Centered frequency */}
+                                                {applyReplacements(season.race_frequency, localTimeReplacements)}
+                                            </div>
+                                        )}
+                                    </th>
+                                
+                                ))}
                             </tr>
                         </thead>
                         <tbody className={`${isDarkMode ? 'bg-neutral-800' : 'bg-white'} divide-y ${isDarkMode ? 'divide-neutral-700' : 'divide-gray-200'}`}>
@@ -736,7 +753,7 @@ const App = () => {
                                                 if (configPart && configPart.toLowerCase() !== 'oval' && configPart.toLowerCase() !== 'n/a' && configPart.trim() !== '') {
                                                     trackNameForDisplay += ` - ${configPart}`;
                                                 }
-                                                subTextForDisplay = schedule.laps ? `${schedule.laps} laps` : '';
+                                                subTextForDisplay = schedule.laps ? `${schedule.laps}` : '';
                                             }
 
                                             const rainChance = schedule.rain_chance || schedule.track?.rain_chance || 0;
@@ -830,7 +847,7 @@ const App = () => {
                                             onChange={() => setIsMinimizerActive(prev => !prev)}
                                             className="form-checkbox h-5 w-5 text-blue-600 rounded-sm focus:ring-blue-500"
                                         />
-                                        <span className={`${isDarkMode ? 'text-neutral-100' : 'text-gray-700'}`}>Minimize Names</span>
+                                        <span className={`${isDarkMode ? 'text-neutral-100' : 'text-gray-700'}`}>Minimize Text</span>
                                     </label>
                                     <button onClick={handleSearchToggle} className={`ml-3 p-1 rounded-full ${isDarkMode ? 'text-neutral-300 hover:text-white' : 'text-gray-600 hover:text-black'}`}><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.197 5.197a7.5 7.5 0 0 0 10.607 10.607Z" /></svg></button>
                                     <input type="text" placeholder="Search..." value={searchTerm} onChange={handleSearchChange} className={`ml-4 px-3 py-1.5 border rounded-md shadow-xs transition-all ${showSearchInput ? 'w-64 opacity-100' : 'w-0 opacity-0'} ${isDarkMode ? 'bg-neutral-700 border-neutral-600' : 'bg-white border-gray-300'}`} />
@@ -855,9 +872,16 @@ const App = () => {
                                                     >
                                                         <label className="flex items-center space-x-3 cursor-pointer">
                                                             <input type="checkbox" checked={selectedSeriesIds.has(seriesKey)} onChange={() => handleSeriesSelectionChange(seriesKey)} className="form-checkbox h-6 w-6 text-blue-600 rounded focus:ring-blue-500 shrink-0" />
-                                                            <span className={`flex items-center text-lg font-bold ${isDarkMode ? 'text-neutral-100' : 'text-gray-800'}`}>
-                                                                {season.season_name || "Invalid Series Name"}
-                                                                {seriesHasRainMap.get(seriesKey) && <span className="ml-2" role="img" aria-label="rain chance">🌧️</span>}
+                                                            <span className={`flex items-center justify-between w-full text-lg font-bold ${isDarkMode ? 'text-neutral-100' : 'text-gray-800'}`}>
+                                                                <span className="flex items-center"> {/* Group name and rain icon */}
+                                                                    {season.season_name || "Invalid Series Name"}
+                                                                    {seriesHasRainMap.get(seriesKey) && <span className="ml-2" role="img" aria-label="rain chance">🌧️</span>}
+                                                                </span>
+                                                                {season.race_frequency && (
+                                                                    <span className={`text-xs font-normal normal-case ${isDarkMode ? 'text-neutral-400' : 'text-gray-500'}`}>
+                                                                        {applyReplacements(season.race_frequency, timeReplacements)}
+                                                                    </span>
+                                                                )}
                                                             </span>
                                                         </label>
                                                     </div>
@@ -905,7 +929,7 @@ const App = () => {
                  <TransitionGroup>
                   {showCalendarTable && tableSeriesData.length > 0 && (
                     <CSSTransition nodeRef={calendarTableRef} key="calendar-table-transition" timeout={500} classNames="table-appear">
-                      <CalendarTable ref={calendarTableRef} seriesData={tableSeriesData} isDarkMode={isDarkMode} getCarsForWeek={getCarsForWeek} applyReplacements={applyReplacements} isMinimizerActive={isMinimizerActive} />
+                      <CalendarTable ref={calendarTableRef} seriesData={tableSeriesData} isDarkMode={isDarkMode} getCarsForWeek={getCarsForWeek} applyReplacements={applyReplacements} isMinimizerActive={isMinimizerActive} timeReplacements={timeReplacements} />
                     </CSSTransition>
                   )}
                 </TransitionGroup>

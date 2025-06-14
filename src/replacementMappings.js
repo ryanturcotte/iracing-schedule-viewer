@@ -91,3 +91,20 @@ export const carConfigReplacements = [
     { original: "Porsche 911 GT3 Cup (992)", replacement: "Porsche Cup" },
     { original: "Audi RS 3 LMS TCR", replacement: "Touring Cars" }
 ];
+
+export const timeReplacements = [
+    { original: "Races every hour", replacement: "Hourly" },
+    { original: "Races every 2 hours", replacement: "Every 2 Hrs" },
+    // Add more time/frequency replacements here
+
+    { original: "Races ", replacement: "" },
+    { original: "every hour", replacement: "hourly" },
+    { original: " past", replacement: "" },
+    { original: "minutes", replacement: "mins" },
+    { original: "at :00 and :30", replacement: ":00/:30" },
+    { original: "at :15 and :45", replacement: ":15/:45" },
+    { original: " after", replacement: ""},
+
+    // This should get the weird Ring Meister time to be more readable
+    { original: " | Qualifying every even 2 hours at :30", replacement: "" }
+];
