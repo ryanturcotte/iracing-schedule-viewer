@@ -48,7 +48,7 @@ const parsePdfData = async (pdfFile) => {
         }, []).sort((a, b) => b.y - a.y).map(l => l.text.trim());
 
         for (const line of lines) {
-            const seriesNameRegex = /^(.*?)(\s*-\s*\d{4}\s+Season\s+\d(?: - Fixed)?)$/i;
+            const seriesNameRegex = /^(.*?)(\s*-*\s*\d{4}\s+Season\s+\d(?: - Fixed)?)$/i;
             const seriesMatch = line.match(seriesNameRegex);
 
             if (seriesMatch && seriesMatch[1]) {
@@ -569,7 +569,7 @@ const App = () => {
                 <div className={`mb-8 p-6 shadow-inner ${isDarkMode ? 'bg-neutral-800' : 'bg-yellow-50'}`}>
                     <h2 className={`text-2xl font-semibold mb-4 ${isDarkMode ? 'text-yellow-300' : 'text-yellow-700'}`}>1. Select Data Source</h2>
                     <div className="flex items-center gap-4">
-                        <select value={selectedDataSource} onChange={e => setSelectedDataSource(e.target.value)} className={`flex-grow p-2 border rounded-md shadow-sm ${isDarkMode ? 'bg-neutral-700 border-neutral-600' : 'bg-white border-gray-300'}`}>
+                        <select value={selectedDataSource} onChange={e => setSelectedDataSource(e.target.value)} className={`flex-grow p-2 border rounded-md shadow-xs ${isDarkMode ? 'bg-neutral-700 border-neutral-600' : 'bg-white border-gray-300'}`}>
                             <option value="" disabled>Select a source...</option>
                             {availableFiles.map(file => <option key={file} value={file}>{file}</option>)}
                         </select>
@@ -586,7 +586,7 @@ const App = () => {
                 <TransitionGroup>
                   {message && ( 
                     <CSSTransition nodeRef={messageRef} key="message-transition" timeout={200} classNames="fade">
-                        <div ref={messageRef} className={`mb-6 p-3 shadow-sm text-center ${isDarkMode ? 'bg-blue-900' : 'bg-blue-100 text-blue-800'} rounded-md`}>{message}</div>
+                        <div ref={messageRef} className={`mb-6 p-3 shadow-xs text-center ${isDarkMode ? 'bg-blue-900' : 'bg-blue-100 text-blue-800'} rounded-md`}>{message}</div>
                     </CSSTransition> 
                   )}
                 </TransitionGroup>
@@ -599,7 +599,7 @@ const App = () => {
                                 <h3 className={`text-lg font-medium mb-3 ${isDarkMode ? 'text-neutral-300' : 'text-gray-700'}`}>By License Level:</h3>
                                 <div className="flex flex-wrap gap-3">
                                     {Object.entries(licenseLevelMap).map(([id, level]) => (
-                                        <label key={id} className={`flex items-center space-x-2 cursor-pointer px-4 py-2 rounded-full shadow-sm ${licenseColorMap[level]} ${selectedLicenseLevels.has(level) ? 'outline' : ''}`}><input type="checkbox" checked={selectedLicenseLevels.has(level)} onChange={() => handleLicenseLevelChange(level)} className="form-checkbox h-5 w-5" /><span>{level}</span></label>
+                                        <label key={id} className={`flex items-center space-x-2 cursor-pointer px-4 py-2 rounded-full shadow-xs ${licenseColorMap[level]} ${selectedLicenseLevels.has(level) ? 'outline' : ''}`}><input type="checkbox" checked={selectedLicenseLevels.has(level)} onChange={() => handleLicenseLevelChange(level)} className="form-checkbox h-5 w-5" /><span>{level}</span></label>
                                     ))}
                                 </div>
                             </div>
@@ -608,7 +608,7 @@ const App = () => {
                             <div className="flex items-center mb-4">
                                 <h2 className={`text-2xl font-semibold ${isDarkMode ? 'text-neutral-200' : 'text-gray-700'}`}>Available Series ({filteredSeries.length})</h2>
                                 <label className="flex items-center ml-auto space-x-2 cursor-pointer mr-4">
-                                    <input type="checkbox" checked={allSeriesSelected} onChange={handleSelectAllChange} className="form-checkbox h-5 w-5 text-blue-600 rounded focus:ring-blue-500"/>
+                                    <input type="checkbox" checked={allSeriesSelected} onChange={handleSelectAllChange} className="form-checkbox h-5 w-5 text-blue-600 rounded-sm focus:ring-blue-500"/>
                                     <span className={`${isDarkMode ? 'text-neutral-100' : 'text-gray-700'}`}>Select All</span>
                                 </label>
                                 <label className="flex items-center space-x-2 cursor-pointer">
@@ -616,12 +616,12 @@ const App = () => {
                                         type="checkbox"
                                         checked={isMinimizerActive}
                                         onChange={() => setIsMinimizerActive(prev => !prev)}
-                                        className="form-checkbox h-5 w-5 text-blue-600 rounded focus:ring-blue-500"
+                                        className="form-checkbox h-5 w-5 text-blue-600 rounded-sm focus:ring-blue-500"
                                     />
                                     <span className={`${isDarkMode ? 'text-neutral-100' : 'text-gray-700'}`}>Minimize Track Names</span>
                                 </label>
                                 <button onClick={handleSearchToggle} className="ml-3 p-1 rounded-full"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.197 5.197a7.5 7.5 0 0 0 10.607 10.607Z" /></svg></button>
-                                <input type="text" placeholder="Search..." value={searchTerm} onChange={handleSearchChange} className={`ml-4 px-3 border rounded-md shadow-sm transition-all ${showSearchInput ? 'w-64 opacity-100' : 'w-0 opacity-0'} ${isDarkMode ? 'bg-neutral-700' : 'bg-white'}`} />
+                                <input type="text" placeholder="Search..." value={searchTerm} onChange={handleSearchChange} className={`ml-4 px-3 border rounded-md shadow-xs transition-all ${showSearchInput ? 'w-64 opacity-100' : 'w-0 opacity-0'} ${isDarkMode ? 'bg-neutral-700' : 'bg-white'}`} />
                             </div>
                             <div className="max-h-[60vh] overflow-y-auto">
                                 <TransitionGroup>
