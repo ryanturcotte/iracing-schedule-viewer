@@ -548,7 +548,7 @@ const App = () => {
                                             const rainChance = schedule.rain_chance || schedule.track?.rain_chance || 0;
                                             let trackDisplayHtml = `<span class="font-semibold">${trackNameForDisplay || 'N/A'}</span>`;
                                             if (rainChance > 0) {
-                                                trackDisplayHtml += `<span class="text-blue-400 ml-1">(${rainChance}%)</span>`;
+                                                trackDisplayHtml = `<span class="text-blue-400 ml-1">${trackNameForDisplay || 'N/A'} (${rainChance}%)</span>`;
                                             }
                                             cellContentHtml = `<div class="flex flex-col">${trackDisplayHtml}<span class="text-xs ${isDarkMode ? 'text-neutral-400' : 'text-gray-600'}">${subTextForDisplay || ''}</span></div>`;
                                         }
@@ -567,7 +567,6 @@ const App = () => {
         <div className={`min-h-screen p-4 font-inter transition-colors duration-300 ${isDarkMode ? 'bg-neutral-950 text-neutral-100' : 'bg-gray-100 text-gray-800'}`}>
             <style>{`::selection { background-color: #3b82f6; color: #ffffff; } .fade-enter { opacity: 0; } .fade-enter-active { opacity: 1; transition: opacity 200ms; } .fade-exit { opacity: 1; } .fade-exit-active { opacity: 0; transition: opacity 200ms; } .table-appear { opacity: 0; transform: translateY(20px); } .table-appear-active { opacity: 1; transform: translateY(0); transition: opacity 300ms, transform 300ms; } `}</style>
             <div className={`max-w-7xl mx-auto shadow-lg p-6 sm:p-8 transition-colors duration-300 ${isDarkMode ? 'bg-neutral-900' : 'bg-white'}`}>
-
                 <h1 className={`text-3xl sm:text-4xl font-bold text-center mb-8 ${isDarkMode ? 'text-neutral-100' : 'text-blue-700'}`}>iRacing Schedule Viewer and Spreadsheet Creator
                     <button
                         onClick={() => setIsDarkMode(prevMode => !prevMode)}
