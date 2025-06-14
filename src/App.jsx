@@ -145,11 +145,75 @@ const parsePdfData = async (pdfFile) => {
     return seriesData.filter(s => s.schedules.length > 0 && s.schedules.length <= 12);
 };
 
+// Component to display unique tracks from selected series
+const TracksDisplayTable = ({ selectedSeriesData, isDarkMode, applyReplacements, isMinimizerActive }) => {
+    const uniqueTracks = useMemo(() => {
+        if (!selectedSeriesData || selectedSeriesData.length === 0) return [];
+        const tracksSet = new Set();
+
+        selectedSeriesData.forEach(series => {
+            series.schedules?.forEach(schedule => {
+                let trackPart = '';
+                let configPart = '';
+
+                // Extract track and config (similar to CalendarTable logic)
+                if (schedule.track && typeof schedule.track === 'object' && schedule.track.track_name) {
+                    trackPart = schedule.track.track_name;
+                    configPart = schedule.track.config_name || '';
+                } else if (schedule.track_name) { // PDF-like data
+                    const separator = " - ";
+                    const separatorIndex = schedule.track_name.lastIndexOf(separator);
+                    if (separatorIndex !== -1) {
+                        trackPart = schedule.track_name.substring(0, separatorIndex);
+                        configPart = schedule.track_name.substring(separatorIndex + separator.length);
+                    } else {
+                        trackPart = schedule.track_name;
+                    }
+                }
+
+                // Apply minimizer if active
+                if (isMinimizerActive) {
+                    trackPart = applyReplacements(trackPart, trackNameReplacements);
+                    configPart = applyReplacements(configPart, trackConfigReplacements);
+                }
+
+                let trackDisplay = trackPart.trim();
+                const configDisplay = configPart.trim();
+
+                if (configDisplay && configDisplay.toLowerCase() !== 'oval' && configDisplay.toLowerCase() !== 'n/a' && configDisplay !== '') {
+                    trackDisplay += ` - ${configDisplay}`;
+                }
+                
+                if (trackDisplay) {
+                    tracksSet.add(trackDisplay);
+                }
+            });
+        });
+        return Array.from(tracksSet).sort((a, b) => a.localeCompare(b));
+    }, [selectedSeriesData, isMinimizerActive, applyReplacements]);
+
+    if (uniqueTracks.length === 0) {
+        return <p className={`text-sm ${isDarkMode ? 'text-neutral-400' : 'text-gray-600'}`}>No tracks to display for selected series.</p>;
+    }
+
+    return (
+        <div>
+            <h3 className={`text-xl font-semibold mb-3 ${isDarkMode ? 'text-neutral-200' : 'text-gray-700'}`}>Tracks in Selected Series ({uniqueTracks.length})</h3>
+            <div className={`max-h-[60vh] overflow-y-auto border rounded-md p-3 ${isDarkMode ? 'border-neutral-700 bg-neutral-850' : 'border-gray-300 bg-gray-50'}`}>
+                <ul className={`list-disc list-inside space-y-1 ${isDarkMode ? 'text-neutral-300' : 'text-gray-700'}`}>
+                    {uniqueTracks.map((track, index) => (
+                        <li key={index} className="py-0.5">{track}</li>
+                    ))}
+                </ul>
+            </div>
+        </div>
+    );
+};
 
 // Main App component
 const App = () => {
     const [seasonsData, setSeasonsData] = useState([]);
-    const [availableFiles, setAvailableFiles] = useState(['season-series-25s2.json', '2025S2.pdf', '2025S3.pdf']);
+    const [availableFiles, setAvailableFiles] = useState([]); // Initialize as empty, will be populated from manifest
     const [fileDataMap, setFileDataMap] = useState(new Map());
     const [selectedDataSource, setSelectedDataSource] = useState('');
     const [selectedLicenseLevels, setSelectedLicenseLevels] = useState(new Set());
@@ -157,7 +221,7 @@ const App = () => {
     const [tableSeriesData, setTableSeriesData] = useState([]);
     const [showCalendarTable, setShowCalendarTable] = useState(false);
     const [message, setMessage] = useState('Please select a data source or upload a file.');
-    const [isLoading, setIsLoading] = useState(false);
+    const [isLoading, setIsLoading] = useState(true); // Start true while fetching manifest
     const [dataLoaded, setDataLoaded] = useState(false);
     const [carIdMap, setCarIdMap] = useState(new Map());
     const [isDarkMode, setIsDarkMode] = useState(true);
@@ -166,9 +230,64 @@ const App = () => {
     const [allSeriesSelected, setAllSeriesSelected] = useState(false);
     const [isMinimizerActive, setIsMinimizerActive] = useState(false); // State for minimizer
     
+    // State for hover tooltip
+    const [hoveredSeriesTracks, setHoveredSeriesTracks] = useState(null); // { seriesId: string, tracks: string[], position: { top: number, left: number } }
+    const hoverTimerRef = useRef(null);
+
     const licenseLevelMap = { 1: 'Rookie', 2: 'D', 3: 'C', 4: 'B', 5: 'A', 0: 'Unknown' };
     const licenseColorMap = { 'Rookie': 'bg-red-500 text-white', 'D': 'bg-orange-500 text-white', 'C': 'bg-yellow-300 text-gray-800', 'B': 'bg-green-500 text-white', 'A': 'bg-blue-500 text-white', 'Unknown': 'bg-gray-400 text-white' };
     
+    const displayableLicenseLevels = useMemo(() => {
+        const allLevels = Object.entries(licenseLevelMap);
+        const hasUnknownSeries = seasonsData.some(s => s.license_group_human_readable === 'Unknown');
+        if (!hasUnknownSeries) {
+            return allLevels.filter(([_, level]) => level !== 'Unknown');
+        }
+        return allLevels;
+    }, [seasonsData]); // licenseLevelMap is constant
+
+    const seriesHasRainMap = useMemo(() => {
+        const map = new Map();
+        seasonsData.forEach(season => {
+            const key = season.series_id || season.season_name;
+            const hasRain = season.schedules?.some(sch => (sch.rain_chance || sch.track?.rain_chance || 0) > 0);
+            map.set(key, hasRain);
+        });
+        return map;
+    }, [seasonsData]);
+
+    useEffect(() => {
+        const fetchScheduleManifest = async () => {
+            setIsLoading(true);
+            setMessage('Loading available schedules...');
+            try {
+                const manifestUrl = `${import.meta.env.BASE_URL}schedules/manifest.json`;
+                const response = await fetch(manifestUrl);
+                if (!response.ok) {
+                    throw new Error(`Failed to fetch schedule manifest: ${response.status} ${response.statusText}`);
+                }
+                const manifestData = await response.json();
+                if (Array.isArray(manifestData)) {
+                    setAvailableFiles(manifestData);
+                    if (manifestData.length > 0) {
+                        setMessage('Please select a data source or upload a file.');
+                    } else {
+                        setMessage('No schedules found in manifest. Please upload a file.');
+                    }
+                } else {
+                    throw new Error("Schedule manifest is not in the expected format (array).");
+                }
+            } catch (error) {
+                console.error("Error fetching schedule manifest:", error);
+                setMessage(`Error loading schedule list: ${error.message}. You can still upload a file.`);
+                setAvailableFiles([]); // Fallback to empty or a default hardcoded list if preferred
+            } finally {
+                setIsLoading(false);
+            }
+        };
+        fetchScheduleManifest();
+    }, []); // Empty dependency array ensures this runs once on component mount
+
     // Helper to escape special characters for RegExp
     const escapeRegExp = (string) => {
         return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // $& means the whole matched string
@@ -322,7 +441,77 @@ const App = () => {
     const handleSearchToggle = useCallback(() => { setShowSearchInput(prev => !prev); setSearchTerm(''); }, []);
     const handleSearchChange = useCallback((event) => { setSearchTerm(event.target.value); }, []);
     const handleSeriesSelectionChange = useCallback((seriesId) => { setSelectedSeriesIds(prev => { const newSet = new Set(prev); if (newSet.has(seriesId)) newSet.delete(seriesId); else newSet.add(seriesId); return newSet; }); }, []);
-    
+
+    const getTracksForSingleSeries = useCallback((series, minimizerActive, replacerFunc) => {
+        if (!series || !series.schedules) return [];
+        
+        // Create a mutable copy and sort by race_week_num to ensure correct order
+        const sortedSchedules = [...series.schedules].sort((a, b) => a.race_week_num - b.race_week_num);
+        
+        const weeklyTrackEntries = sortedSchedules.map(schedule => {
+            let trackPart = '';
+            let configPart = '';
+
+            // Existing logic to extract trackPart and configPart
+            if (schedule.track && typeof schedule.track === 'object' && schedule.track.track_name) {
+                trackPart = schedule.track.track_name;
+                configPart = schedule.track.config_name || '';
+            } else if (schedule.track_name) { // PDF-like data
+                const separator = " - ";
+                const separatorIndex = schedule.track_name.lastIndexOf(separator);
+                if (separatorIndex !== -1) {
+                    trackPart = schedule.track_name.substring(0, separatorIndex);
+                    configPart = schedule.track_name.substring(separatorIndex + separator.length);
+                } else {
+                    trackPart = schedule.track_name;
+                }
+            }
+
+            if (minimizerActive) {
+                trackPart = replacerFunc(trackPart, trackNameReplacements);
+                configPart = replacerFunc(configPart, trackConfigReplacements);
+            }
+
+            let trackDisplay = trackPart.trim();
+            const configDisplay = configPart.trim();
+
+            if (configDisplay && configDisplay.toLowerCase() !== 'oval' && configDisplay.toLowerCase() !== 'n/a' && configDisplay !== '') {
+                trackDisplay += ` - ${configDisplay}`;
+            }
+
+            const rainChance = schedule.rain_chance || schedule.track?.rain_chance || 0;
+            
+            return {
+                text: `Week ${schedule.race_week_num + 1}: ${trackDisplay || 'N/A'}`,
+                rainChance: rainChance
+            };
+        });
+        return weeklyTrackEntries;
+    }, []); // Assuming trackNameReplacements & trackConfigReplacements are stable or App re-renders if they change
+
+    const handleSeriesMouseEnter = useCallback((event, seriesId) => {
+        clearTimeout(hoverTimerRef.current);
+        const currentTargetRect = event.currentTarget.getBoundingClientRect(); // Get rect immediately
+        // console.log('Mouse enter on series:', seriesId); // Log 1: Check if event fires
+        hoverTimerRef.current = setTimeout(() => {
+            // console.log('Timer fired for series:', seriesId); // Log 2: Check if timer completes
+            const series = seasonsData.find(s => (s.series_id || s.season_name) === seriesId); // seasonsData is from App's state
+            if (series) {
+                // console.log('Found series for tooltip:', series); // Log 3: Check the found series object
+                const tracks = getTracksForSingleSeries(series, isMinimizerActive, applyReplacements); // isMinimizerActive & applyReplacements are from App's state/memoized
+                // console.log('Tracks extracted for tooltip:', tracks); // Log 4: Check the extracted tracks
+                if (tracks.length > 0) {
+                    setHoveredSeriesTracks({ seriesId, tracks, position: { top: currentTargetRect.bottom + window.scrollY, left: currentTargetRect.left + window.scrollX } });
+                } else {
+                    // console.log('No tracks found (tracks.length is 0) for series:', seriesId); // Log 5: If tracks array is empty
+                }
+            } else {
+                // console.log('Series not found in seasonsData for tooltip. ID:', seriesId); // Log 6: If series object is not found
+            }
+        }, 700); // 700ms delay
+    }, [seasonsData, isMinimizerActive, applyReplacements, getTracksForSingleSeries]);
+
+    const handleSeriesMouseLeave = useCallback(() => { clearTimeout(hoverTimerRef.current); setHoveredSeriesTracks(null); }, []);
     const messageRef = useRef(null);
     const seriesItemRefs = useRef({});
     const calendarTableRef = useRef(null);
@@ -394,6 +583,7 @@ const App = () => {
                         weeklyCarsPart = schedule.weekly_cars; // This will be handled by carConfigReplacements later
                     }
 
+                    const rainChance = schedule.rain_chance || schedule.track?.rain_chance || 0;
                     // 2. Apply minimizer if active (for track and track config)
                     if (isMinimizerActive) {
                         trackPart = applyReplacements(trackPart, trackNameReplacements);
@@ -418,6 +608,10 @@ const App = () => {
                         if (configPart && configPart.toLowerCase() !== 'oval' && configPart.toLowerCase() !== 'n/a' && configPart.trim() !== '') {
                             cellData += ` - ${configPart}`;
                         }
+                    }
+
+                    if (rainChance > 0) {
+                        cellData += ` (${rainChance}%)`;
                     }
                 }
                 dataRows[`Track${i+1}`].push(cellData);
@@ -593,7 +787,7 @@ const App = () => {
                     </button>
                 </h1>           
                 <div className={`mb-8 p-6 shadow-inner ${isDarkMode ? 'bg-neutral-800' : 'bg-yellow-50'}`}>
-                    <h2 className={`text-2xl font-semibold mb-4 ${isDarkMode ? 'text-yellow-300' : 'text-yellow-700'}`}>1. Select Data Source</h2>
+                    <h2 className={`text-2xl font-semibold mb-4 ${isDarkMode ? 'text-yellow-300' : 'text-yellow-700'}`}>Select Data Source</h2>
                     <div className="flex items-center gap-4">
                         <select value={selectedDataSource} onChange={e => setSelectedDataSource(e.target.value)} className={`grow p-2 border rounded-md shadow-xs ${isDarkMode ? 'bg-neutral-700 border-neutral-600' : 'bg-white border-gray-300'}`}>
                             <option value="" disabled>Select a source...</option>
@@ -619,64 +813,86 @@ const App = () => {
 
                 {dataLoaded && !isLoading && (
                     <>
-                        <div className={`mb-8 p-6 shadow-inner ${isDarkMode ? 'bg-neutral-800' : 'bg-blue-50'}`}>
-                            <h2 className={`text-2xl font-semibold mb-4 ${isDarkMode ? 'text-neutral-200' : 'text-blue-600'}`}>Filter Series</h2>
-                            <div className="mb-6">
-                                <h3 className={`text-lg font-medium mb-3 ${isDarkMode ? 'text-neutral-300' : 'text-gray-700'}`}>By License Level:</h3>
-                                <div className="flex flex-wrap gap-3">
-                                    {Object.entries(licenseLevelMap).map(([id, level]) => (
-                                        <label key={id} className={`flex items-center space-x-2 cursor-pointer px-4 py-2 rounded-full shadow-xs ${licenseColorMap[level]} ${selectedLicenseLevels.has(level) ? 'outline' : ''}`}><input type="checkbox" checked={selectedLicenseLevels.has(level)} onChange={() => handleLicenseLevelChange(level)} className="form-checkbox h-5 w-5" /><span>{level}</span></label>
-                                    ))}
+                        {/* Container for Series List and Tracks Table */}
+                        <div className="flex flex-col md:flex-row gap-6 mb-8">
+                            {/* Available Series Section */}
+                            <div className={`md:w-2/3 p-6 shadow-inner ${isDarkMode ? 'bg-neutral-800' : 'bg-gray-50'}`}>
+                                <div className="flex items-center mb-4">
+                                    <h2 className={`text-2xl font-semibold ${isDarkMode ? 'text-neutral-200' : 'text-gray-700'}`}>Select Series ({filteredSeries.length})</h2>
+                                    <label className="flex items-center ml-auto space-x-2 cursor-pointer mr-4">
+                                        <input type="checkbox" checked={allSeriesSelected} onChange={handleSelectAllChange} className="form-checkbox h-5 w-5 text-blue-600 rounded-sm focus:ring-blue-500"/>
+                                        <span className={`${isDarkMode ? 'text-neutral-100' : 'text-gray-700'}`}>Select All</span>
+                                    </label>
+                                    <label className="flex items-center space-x-2 cursor-pointer">
+                                        <input
+                                            type="checkbox"
+                                            checked={isMinimizerActive}
+                                            onChange={() => setIsMinimizerActive(prev => !prev)}
+                                            className="form-checkbox h-5 w-5 text-blue-600 rounded-sm focus:ring-blue-500"
+                                        />
+                                        <span className={`${isDarkMode ? 'text-neutral-100' : 'text-gray-700'}`}>Minimize Names</span>
+                                    </label>
+                                    <button onClick={handleSearchToggle} className={`ml-3 p-1 rounded-full ${isDarkMode ? 'text-neutral-300 hover:text-white' : 'text-gray-600 hover:text-black'}`}><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.197 5.197a7.5 7.5 0 0 0 10.607 10.607Z" /></svg></button>
+                                    <input type="text" placeholder="Search..." value={searchTerm} onChange={handleSearchChange} className={`ml-4 px-3 py-1.5 border rounded-md shadow-xs transition-all ${showSearchInput ? 'w-64 opacity-100' : 'w-0 opacity-0'} ${isDarkMode ? 'bg-neutral-700 border-neutral-600' : 'bg-white border-gray-300'}`} />
+                                </div>
+                                <div className="max-h-[60vh] overflow-y-auto">
+                                    <TransitionGroup>
+                                        {filteredSeries.map(season => {
+                                            if (!season || !season.season_name) return null;
+                                            const seriesKey = season.series_id || season.season_name;
+                                            if (!seriesItemRefs.current[seriesKey]) seriesItemRefs.current[seriesKey] = React.createRef();
+                                            const nodeRef = seriesItemRefs.current[seriesKey];
+
+                                            return (
+                                                <CSSTransition key={seriesKey} nodeRef={nodeRef} timeout={300} classNames="fade">
+                                                    <div 
+                                                        ref={nodeRef} 
+                                                        className={`p-4 mb-2 rounded-md shadow-md transition-colors ${selectedSeriesIds.has(seriesKey) ? (isDarkMode ? 'bg-green-800 hover:bg-green-700' : 'bg-green-100 hover:bg-green-200') : (isDarkMode ? 'bg-neutral-900 hover:bg-neutral-700' : 'bg-white hover:bg-gray-100')}`}
+                                                        onMouseEnter={(e) => handleSeriesMouseEnter(e, seriesKey)}
+                                                        onMouseLeave={handleSeriesMouseLeave}
+                                                        role="button" // For accessibility, as it has hover interaction
+                                                        tabIndex={0} // Make it focusable
+                                                    >
+                                                        <label className="flex items-center space-x-3 cursor-pointer">
+                                                            <input type="checkbox" checked={selectedSeriesIds.has(seriesKey)} onChange={() => handleSeriesSelectionChange(seriesKey)} className="form-checkbox h-6 w-6 text-blue-600 rounded focus:ring-blue-500 shrink-0" />
+                                                            <span className={`flex items-center text-lg font-bold ${isDarkMode ? 'text-neutral-100' : 'text-gray-800'}`}>
+                                                                {season.season_name || "Invalid Series Name"}
+                                                                {seriesHasRainMap.get(seriesKey) && <span className="ml-2" role="img" aria-label="rain chance">🌧️</span>}
+                                                            </span>
+                                                        </label>
+                                                    </div>
+                                                </CSSTransition>
+                                            );
+                                        })}
+                                    </TransitionGroup>
                                 </div>
                             </div>
-                        </div>
-                        <div className={`mb-8 p-6 shadow-inner ${isDarkMode ? 'bg-neutral-800' : 'bg-gray-50'}`}>
-                            <div className="flex items-center mb-4">
-                                <h2 className={`text-2xl font-semibold ${isDarkMode ? 'text-neutral-200' : 'text-gray-700'}`}>Available Series ({filteredSeries.length})</h2>
-                                <label className="flex items-center ml-auto space-x-2 cursor-pointer mr-4">
-                                    <input type="checkbox" checked={allSeriesSelected} onChange={handleSelectAllChange} className="form-checkbox h-5 w-5 text-blue-600 rounded-sm focus:ring-blue-500"/>
-                                    <span className={`${isDarkMode ? 'text-neutral-100' : 'text-gray-700'}`}>Select All</span>
-                                </label>
-                                <label className="flex items-center space-x-2 cursor-pointer">
-                                    <input
-                                        type="checkbox"
-                                        checked={isMinimizerActive}
-                                        onChange={() => setIsMinimizerActive(prev => !prev)}
-                                        className="form-checkbox h-5 w-5 text-blue-600 rounded-sm focus:ring-blue-500"
-                                    />
-                                    <span className={`${isDarkMode ? 'text-neutral-100' : 'text-gray-700'}`}>Minimize Track Names</span>
-                                </label>
-                                <button onClick={handleSearchToggle} className="ml-3 p-1 rounded-full"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.197 5.197a7.5 7.5 0 0 0 10.607 10.607Z" /></svg></button>
-                                <input type="text" placeholder="Search..." value={searchTerm} onChange={handleSearchChange} className={`ml-4 px-3 border rounded-md shadow-xs transition-all ${showSearchInput ? 'w-64 opacity-100' : 'w-0 opacity-0'} ${isDarkMode ? 'bg-neutral-700' : 'bg-white'}`} />
-                            </div>
-                            <div className="max-h-[60vh] overflow-y-auto">
-                                <TransitionGroup>
-                                    {filteredSeries.map(season => {
-                                        if (!season || !season.season_name) {
-                                            // console.error("Attempted to render an invalid season object:", season);
-                                            return null;
-                                        }
-                                        const seriesKey = season.series_id || season.season_name;
-                                        if (!seriesItemRefs.current[seriesKey]) {
-                                            seriesItemRefs.current[seriesKey] = React.createRef();
-                                        }
-                                        const nodeRef = seriesItemRefs.current[seriesKey];
 
-                                        return (
-                                            <CSSTransition key={seriesKey} nodeRef={nodeRef} timeout={300} classNames="fade">
-                                                <div 
-                                                    ref={nodeRef} 
-                                                    className={`p-4 shadow-md ${selectedSeriesIds.has(seriesKey) ? (isDarkMode ? 'bg-green-900' : 'bg-green-100') : (isDarkMode ? 'bg-neutral-900' : 'bg-white')}`}
-                                                >
-                                                    <label className="flex items-center space-x-3 cursor-pointer">
-                                                        <input type="checkbox" checked={selectedSeriesIds.has(seriesKey)} onChange={() => handleSeriesSelectionChange(seriesKey)} className="form-checkbox h-6 w-6" />
-                                                        <p className={`text-lg font-bold ${isDarkMode ? 'text-neutral-100' : 'text-gray-800'}`}>{season.season_name || "Invalid Series Name"}</p>
-                                                    </label>
-                                                </div>
-                                            </CSSTransition>
-                                        );
-                                    })}
-                                </TransitionGroup>
+                            {/* Right Column for Filters and Tracks Display */}
+                            <div className="md:w-1/3 flex flex-col gap-6">
+                                {/* Filter Series Section */}
+                                <div className={`p-6 shadow-inner ${isDarkMode ? 'bg-neutral-800' : 'bg-blue-50'}`}>
+                                    <h2 className={`text-2xl font-semibold mb-4 ${isDarkMode ? 'text-neutral-200' : 'text-blue-600'}`}>Filter Series</h2>
+                                    <div className="mb-6">
+                                        <h3 className={`text-lg font-medium mb-3 ${isDarkMode ? 'text-neutral-300' : 'text-gray-700'}`}>By License Level:</h3>
+                                        <div className="flex flex-col items-start gap-2"> {/* Changed for stacking */}
+                                            {displayableLicenseLevels.map(([id, level]) => (
+                                                <label key={id} className={`flex items-center space-x-2 cursor-pointer px-4 py-2 rounded-full shadow-xs transition-all ${licenseColorMap[level]} ${selectedLicenseLevels.has(level) ? 'ring-2 ring-offset-2 ring-offset-transparent ring-white' : 'opacity-80 hover:opacity-100'}`}><input type="checkbox" checked={selectedLicenseLevels.has(level)} onChange={() => handleLicenseLevelChange(level)} className="form-checkbox h-5 w-5" /><span>{level}</span></label>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Tracks Display Section - Conditionally rendered */}
+                                {tableSeriesData.length > 0 && (
+                                    <div className={`p-6 shadow-inner ${isDarkMode ? 'bg-neutral-800' : 'bg-gray-50'}`}>
+                                        <TracksDisplayTable
+                                            selectedSeriesData={tableSeriesData}
+                                            isDarkMode={isDarkMode}
+                                            applyReplacements={applyReplacements}
+                                            isMinimizerActive={isMinimizerActive} />
+                                    </div>
+                                )}
                             </div>
                         </div>
                         <div className="flex flex-col sm:flex-row justify-center gap-4 mb-8">
@@ -693,6 +909,30 @@ const App = () => {
                     </CSSTransition>
                   )}
                 </TransitionGroup>
+
+                {/* Track Tooltip */}
+                {hoveredSeriesTracks && hoveredSeriesTracks.tracks.length > 0 && (
+                    <div
+                        style={{ top: hoveredSeriesTracks.position.top + 8, left: hoveredSeriesTracks.position.left }}
+                        className={`absolute z-50 p-3 rounded-md shadow-xl text-sm w-auto max-w-sm
+                                    ${isDarkMode ? 'bg-neutral-700 border border-neutral-600 text-neutral-100'
+                                                : 'bg-white border border-gray-300 text-gray-800'}`}
+                    >
+                        <h4 className="font-semibold mb-1 text-sm">Tracks for this series:</h4>
+                        <ul className="max-h-72 overflow-y-auto space-y-0.5"> {/* Increased max-h for more lines, width increased via max-w-sm */}
+                            {hoveredSeriesTracks.tracks.map((trackInfo, index) => (
+                                <li key={index}>
+                                    <span className={trackInfo.rainChance > 0 ? 'text-blue-400' : ''}>
+                                        {trackInfo.text}
+                                    </span>
+                                    {trackInfo.rainChance > 0 && (
+                                        <span className="text-blue-400 ml-1">({trackInfo.rainChance}%)</span>
+                                    )}
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
+                )}
             </div>
         </div>
     );
