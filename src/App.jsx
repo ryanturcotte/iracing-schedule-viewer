@@ -215,6 +215,14 @@ const parsePdfData = async (pdfFile) => {
     return seriesData.filter(s => s.schedules.length > 0 && s.schedules.length <= 12);
 };
 
+// Helper function to format track type strings
+const formatTrackType = (type) => {
+    if (!type || typeof type !== 'string') return '';
+    return type
+        .split('_')
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(' ');
+};
 // Component to display unique tracks from selected series
 const TracksDisplayTable = ({ selectedSeriesData, isDarkMode, applyReplacements, isMinimizerActive }) => {
     const uniqueTracks = useMemo(() => {
@@ -288,6 +296,7 @@ const App = () => {
     const [selectedDataSource, setSelectedDataSource] = useState('');
     const [selectedLicenseLevels, setSelectedLicenseLevels] = useState(new Set());
     const [selectedSeriesIds, setSelectedSeriesIds] = useState(new Set());
+    const [selectedTrackTypes, setSelectedTrackTypes] = useState(new Set()); // New state for track types
     const [tableSeriesData, setTableSeriesData] = useState([]);
     const [showCalendarTable, setShowCalendarTable] = useState(false);
     const [message, setMessage] = useState('Please select a data source or upload a file.');
@@ -316,6 +325,18 @@ const App = () => {
         return allLevels;
     }, [seasonsData]); // licenseLevelMap is constant
 
+    const availableTrackTypes = useMemo(() => {
+        if (!seasonsData || seasonsData.length === 0) return [];
+        const types = new Set();
+        seasonsData.forEach(season => { // Iterate through all track types for a season
+            season.track_types?.forEach(tt => {
+                if (tt.track_type) {
+                    types.add(tt.track_type); // Store the raw type
+                }
+            });
+        });
+        return Array.from(types).sort();
+    }, [seasonsData]);
     const seriesHasRainMap = useMemo(() => {
         const map = new Map();
         seasonsData.forEach(season => {
@@ -462,6 +483,7 @@ const App = () => {
             setSeasonsData(processedData);
             setDataLoaded(true);
             setSelectedSeriesIds(new Set());
+            setSelectedTrackTypes(new Set()); // Clear track type filter
             setShowCalendarTable(false);
             setTableSeriesData([]);
         } catch (error) {
@@ -469,6 +491,8 @@ const App = () => {
             console.error('Error loading data:', error);
             setDataLoaded(false);
         } finally {
+            // Also clear filters if loading fails or is just completed, to ensure a fresh state
+            // setSelectedTrackTypes(new Set()); // Already handled in success, consider if needed for error too
             setIsLoading(false);
         }
     }, [selectedDataSource, fileDataMap, processAndSetData]);
@@ -488,11 +512,15 @@ const App = () => {
         return seasonsData.filter(season => {
             if (!season || !season.license_group_human_readable) return false;
             const matchesLevel = selectedLicenseLevels.size === 0 || selectedLicenseLevels.has(season.license_group_human_readable);
+
+            const seasonTrackTypesList = season.track_types?.map(tt => tt.track_type).filter(Boolean) || [];
+            const matchesTrackType = selectedTrackTypes.size === 0 || (seasonTrackTypesList.length > 0 && seasonTrackTypesList.some(stt => selectedTrackTypes.has(stt)));
+
             const searchHaystack = `${season.series_name || ''} ${season.season_name || ''}`.toLowerCase();
             const matchesSearch = !searchTerm || searchHaystack.includes(searchTerm.toLowerCase());
-            return matchesLevel && matchesSearch;
+            return matchesLevel && matchesSearch && matchesTrackType;
         });
-    }, [seasonsData, selectedLicenseLevels, searchTerm]);
+    }, [seasonsData, selectedLicenseLevels, searchTerm, selectedTrackTypes]);
 
     const handleSelectAllChange = useCallback(() => {
         if (allSeriesSelected) {
@@ -511,6 +539,7 @@ const App = () => {
     const handleSearchToggle = useCallback(() => { setShowSearchInput(prev => !prev); setSearchTerm(''); }, []);
     const handleSearchChange = useCallback((event) => { setSearchTerm(event.target.value); }, []);
     const handleSeriesSelectionChange = useCallback((seriesId) => { setSelectedSeriesIds(prev => { const newSet = new Set(prev); if (newSet.has(seriesId)) newSet.delete(seriesId); else newSet.add(seriesId); return newSet; }); }, []);
+    const handleTrackTypeChange = useCallback((type) => { setSelectedTrackTypes(prev => { const newSet = new Set(prev); if (newSet.has(type)) newSet.delete(type); else newSet.add(type); return newSet; }); }, []);
 
     const getTracksForSingleSeries = useCallback((series, minimizerActive, replacerFunc) => {
         if (!series || !series.schedules) return [];
@@ -599,7 +628,8 @@ const App = () => {
     }, [carIdMap]);
 
     const generateCsv = useCallback(() => {
-        const selected = seasonsData.filter(season => selectedSeriesIds.has(season.season_name));
+        // Correctly identify selected series using series_id if available, then season_name
+        const selected = seasonsData.filter(season => selectedSeriesIds.has(season.series_id || season.season_name));
         if (selected.length === 0) {
             setMessage('Please select at least one series to generate CSV.');
             return;
@@ -622,7 +652,9 @@ const App = () => {
             const frequencyText = series.race_frequency ? applyReplacements(series.race_frequency, timeReplacements) : 'N/A';
             dataRows.Time.push(frequencyText);
             dataRows.License.push(series.license_group_human_readable || 'N/A');
-            dataRows.Style.push(series.track_types?.[0]?.track_type || 'N/A');
+            // Handle multiple track types for CSV, join formatted names
+            const seriesStyles = series.track_types?.map(tt => formatTrackType(tt.track_type)).filter(Boolean).join(' / ') || 'N/A';
+            dataRows.Style.push(seriesStyles);
             dataRows.Name.push(series.season_name);
 
             for (let i = 0; i < 12; i++) {
@@ -942,10 +974,18 @@ const App = () => {
                                                             <input type="checkbox" checked={selectedSeriesIds.has(seriesKey)} onChange={() => handleSeriesSelectionChange(seriesKey)} className="form-checkbox h-6 w-6 text-blue-600 rounded focus:ring-blue-500 shrink-0" />
                                                             <span className={`flex items-center justify-between w-full text-lg font-bold ${isDarkMode ? 'text-neutral-100' : 'text-gray-800'}`}>
                                                                 <span className="flex items-center"> {/* Group name and rain icon */}
-                                                                    {season.season_name || "Invalid Series Name"}
-                                                                    {seriesHasRainMap.get(seriesKey) && <span className="ml-2" role="img" aria-label="rain chance">🌧️</span>}
+                                                                    <span>{season.season_name || "Invalid Series Name"}</span>
+                                                                    {seriesHasRainMap.get(seriesKey) && <span className="ml-2 text-lg" role="img" aria-label="rain chance">🌧️</span>}
+                                                                    {/* Display Track Type(s)/Style(s) */}
+                                                                    {season.track_types && season.track_types.length > 0 && (
+                                                                        season.track_types.map(tt => tt.track_type).filter(Boolean).map(type => (
+                                                                            <span key={type} className={`ml-2 text-xs font-medium px-1.5 py-0.5 rounded ${isDarkMode ? 'bg-neutral-700 text-neutral-300' : 'bg-gray-200 text-gray-600'}`}>
+                                                                                {formatTrackType(type)}
+                                                                            </span>
+                                                                        ))
+                                                                    )}
                                                                 </span>
-                                                                {season.race_frequency && (
+                                                                {season.race_frequency && !season.isSameTrackEveryWeek && ( // Only show frequency if not same track every week
                                                                     <span className={`text-xs font-normal normal-case ${isDarkMode ? 'text-neutral-400' : 'text-gray-500'}`}>
                                                                         {applyReplacements(season.race_frequency, timeReplacements)}
                                                                     </span>
@@ -965,13 +1005,39 @@ const App = () => {
                                 {/* Filter Series Section */}
                                 <div className={`p-6 shadow-inner ${isDarkMode ? 'bg-neutral-800' : 'bg-blue-50'}`}>
                                     <h2 className={`text-2xl font-semibold mb-4 ${isDarkMode ? 'text-neutral-200' : 'text-blue-600'}`}>Filter Series</h2>
-                                    <div className="mb-6">
-                                        <h3 className={`text-lg font-medium mb-3 ${isDarkMode ? 'text-neutral-300' : 'text-gray-700'}`}>By License Level:</h3>
-                                        <div className="flex flex-col items-start gap-2"> {/* Changed for stacking */}
-                                            {displayableLicenseLevels.map(([id, level]) => (
-                                                <label key={id} className={`flex items-center space-x-2 cursor-pointer px-4 py-2 rounded-full shadow-xs transition-all ${licenseColorMap[level]} ${selectedLicenseLevels.has(level) ? 'ring-2 ring-offset-2 ring-offset-transparent ring-white' : 'opacity-80 hover:opacity-100'}`}><input type="checkbox" checked={selectedLicenseLevels.has(level)} onChange={() => handleLicenseLevelChange(level)} className="form-checkbox h-5 w-5" /><span>{level}</span></label>
-                                            ))}
+                                    <div className="flex flex-col md:flex-row md:gap-6"> {/* New wrapper for side-by-side layout */}
+                                        {/* License Level Filter Section */}
+                                        <div className="flex-1 mb-6 md:mb-0">
+                                            <h3 className={`text-lg font-medium mb-3 ${isDarkMode ? 'text-neutral-300' : 'text-gray-700'}`}>By License Level:</h3>
+                                            <div className="flex flex-col items-start gap-2">
+                                                {displayableLicenseLevels.map(([id, level]) => (
+                                                    <label key={id} className={`flex items-center space-x-2 cursor-pointer px-4 py-2 rounded-full shadow-xs transition-all ${
+                                                        licenseColorMap[level]
+                                                    } ${
+                                                        selectedLicenseLevels.has(level) ? 'ring-2 ring-offset-2 ring-offset-transparent ring-white' : 'opacity-80 hover:opacity-100'
+                                                    }`}><input type="checkbox" checked={selectedLicenseLevels.has(level)} onChange={() => handleLicenseLevelChange(level)} className="form-checkbox h-5 w-5" /><span>{level}</span></label>
+                                                ))}
+                                            </div>
                                         </div>
+
+                                        {/* Track Type Filter Section */}
+                                        {availableTrackTypes.length > 0 && (
+                                            <div className="flex-1 mb-6 md:mb-0">
+                                                <h3 className={`text-lg font-medium mb-3 ${isDarkMode ? 'text-neutral-300' : 'text-gray-700'}`}>By Track Type:</h3>
+                                                <div className="flex flex-col items-start gap-2">
+                                                    {availableTrackTypes.map((type) => (
+                                                        <label key={type} className={`flex items-center space-x-2 cursor-pointer px-4 py-2 rounded-full shadow-xs transition-all text-sm ${
+                                                            selectedTrackTypes.has(type)
+                                                                ? (isDarkMode ? 'bg-blue-600 text-white ring-2 ring-offset-2 ring-offset-transparent ring-white' : 'bg-blue-500 text-white ring-2 ring-offset-2 ring-offset-transparent ring-white')
+                                                                : (isDarkMode ? 'bg-neutral-600 text-neutral-200 opacity-80 hover:opacity-100' : 'bg-gray-300 text-gray-800 opacity-80 hover:opacity-100')
+                                                        }`}>
+                                                            <input type="checkbox" checked={selectedTrackTypes.has(type)} onChange={() => handleTrackTypeChange(type)} className="form-checkbox h-5 w-5" />
+                                                            <span>{formatTrackType(type)}</span>
+                                                        </label>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
 
