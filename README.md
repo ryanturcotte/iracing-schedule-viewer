@@ -31,7 +31,7 @@ The Excel template also includes conditional cell formatting for Wet weeks!
 
 ## Background and AI Usage
 
-This app began as an experiment in AI/LLM code creation using Google Gemini Canvas by [@zerske] (https://www.github.com/zerske). With well-crafted prompts and the iRacing JSON used in the Powershell app, Google Gemini was able to recreate all of the functionality, create a flexible UI, and add other useful features like filters for License level and Race style hosted in Canvas utilizing Node.js, React, and Tailwind CSS.
+This app began as an experiment in AI/LLM code creation using Google Gemini Canvas by [@zerske](https://www.github.com/zerske). With well-crafted prompts and the iRacing JSON used in the Powershell app, Google Gemini was able to recreate all of the functionality, create a flexible UI, and add other useful features like filters for License level and Race style hosted in Canvas utilizing Node.js, React, and Tailwind CSS.
 
 Getting it out of Canvas and into GitHub was a little more difficult because Gemini's instructions neglected to mention it was using Tailwind v3. But after running the Tailwind v4 upgrade, the original Canvas design was recreated. Continued prompting of Google Gemini Code Assist has gotten the app to it's current state.
 
