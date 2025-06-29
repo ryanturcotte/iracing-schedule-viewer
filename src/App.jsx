@@ -212,7 +212,7 @@ const parsePdfData = async (pdfFile) => {
     }
     if (currentSeries) seriesData.push(currentSeries);
     
-    return seriesData.filter(s => s.schedules.length > 0 && s.schedules.length <= 12);
+    return seriesData.filter(s => s.schedules.length > 0); // Keep series with schedules, but don't filter by length
 };
 
 // Helper function to format track type strings
@@ -222,6 +222,38 @@ const formatTrackType = (type) => {
         .split('_')
         .map(word => word.charAt(0).toUpperCase() + word.slice(1))
         .join(' ');
+};
+
+// Cookie helper functions
+const setCookie = (name, value, days) => {
+    let expires = "";
+    if (days) {
+        const date = new Date();
+        date.setTime(date.getTime() + (days * 24 * 60 * 60 * 1000));
+        expires = "; expires=" + date.toUTCString();
+    }
+    // Convert Set to Array before stringifying
+    const valueToStore = value instanceof Set ? Array.from(value) : value;
+    document.cookie = name + "=" + (JSON.stringify(valueToStore) || "") + expires + "; path=/";
+};
+
+const getCookie = (name) => {
+    const nameEQ = name + "=";
+    const ca = document.cookie.split(';');
+    for (let i = 0; i < ca.length; i++) {
+        let c = ca[i];
+        while (c.charAt(0) === ' ') c = c.substring(1, c.length);
+        if (c.indexOf(nameEQ) === 0) {
+            const value = c.substring(nameEQ.length, c.length);
+            try {
+                return JSON.parse(value);
+            } catch (e) {
+                console.error(`Error parsing cookie ${name}:`, e);
+                return null;
+            }
+        }
+    }
+    return null;
 };
 // Component to display unique tracks from selected series
 const TracksDisplayTable = ({ selectedSeriesData, isDarkMode, applyReplacements, isMinimizerActive }) => {
@@ -293,21 +325,23 @@ const App = () => {
     const [seasonsData, setSeasonsData] = useState([]);
     const [availableFiles, setAvailableFiles] = useState([]); // Initialize as empty, will be populated from manifest
     const [fileDataMap, setFileDataMap] = useState(new Map());
-    const [selectedDataSource, setSelectedDataSource] = useState('');
-    const [selectedLicenseLevels, setSelectedLicenseLevels] = useState(new Set());
-    const [selectedSeriesIds, setSelectedSeriesIds] = useState(new Set());
-    const [selectedTrackTypes, setSelectedTrackTypes] = useState(new Set()); // New state for track types
+    const [selectedDataSource, setSelectedDataSource] = useState(() => getCookie('selectedDataSource') || 'season-series-25s3.json');
+    const [selectedLicenseLevels, setSelectedLicenseLevels] = useState(() => new Set(getCookie('selectedLicenseLevels') || []));
+    const [selectedSeriesIds, setSelectedSeriesIds] = useState(() => new Set(getCookie('selectedSeriesIds') || []));
+    const [selectedTrackTypes, setSelectedTrackTypes] = useState(() => new Set(getCookie('selectedTrackTypes') || []));
     const [tableSeriesData, setTableSeriesData] = useState([]);
     const [showCalendarTable, setShowCalendarTable] = useState(false);
     const [message, setMessage] = useState('Please select a data source or upload a file.');
-    const [isLoading, setIsLoading] = useState(true); // Start true while fetching manifest
+    const [isLoading, setIsLoading] = useState(false); // Start false, will be set true during loads
     const [dataLoaded, setDataLoaded] = useState(false);
     const [carIdMap, setCarIdMap] = useState(new Map());
     const [isDarkMode, setIsDarkMode] = useState(true);
     const [showSearchInput, setShowSearchInput] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     const [allSeriesSelected, setAllSeriesSelected] = useState(false);
-    const [isMinimizerActive, setIsMinimizerActive] = useState(false); // State for minimizer
+    const [isMinimizerActive, setIsMinimizerActive] = useState(() => getCookie('isMinimizerActive') || false);
+    const [includeYearLongSeries, setIncludeYearLongSeries] = useState(() => getCookie('includeYearLongSeries') || false);
+    const initialLoadPerformed = useRef(false);
     
     // State for hover tooltip
     const [hoveredSeriesTracks, setHoveredSeriesTracks] = useState(null); // { seriesId: string, tracks: string[], position: { top: number, left: number } }
@@ -347,9 +381,19 @@ const App = () => {
         return map;
     }, [seasonsData]);
 
+    // Effect to save selections to cookies
+    useEffect(() => {
+        setCookie('selectedSeriesIds', selectedSeriesIds, 30); // Save for 30 days
+        setCookie('selectedLicenseLevels', selectedLicenseLevels, 30);
+        setCookie('selectedTrackTypes', selectedTrackTypes, 30);
+        setCookie('selectedDataSource', selectedDataSource, 30);
+        setCookie('isMinimizerActive', isMinimizerActive, 30);
+        setCookie('includeYearLongSeries', includeYearLongSeries, 30);
+    }, [selectedSeriesIds, selectedLicenseLevels, selectedTrackTypes, selectedDataSource, isMinimizerActive, includeYearLongSeries]);
+
     useEffect(() => {
         const fetchScheduleManifest = async () => {
-            setIsLoading(true);
+            // No longer setting isLoading to true here, to allow auto-load to manage it.
             setMessage('Loading available schedules...');
             try {
                 const manifestUrl = `${import.meta.env.BASE_URL}schedules/manifest.json`;
@@ -373,7 +417,7 @@ const App = () => {
                 setMessage(`Error loading schedule list: ${error.message}. You can still upload a file.`);
                 setAvailableFiles([]); // Fallback to empty or a default hardcoded list if preferred
             } finally {
-                setIsLoading(false);
+                // No longer setting isLoading to false here.
             }
         };
         fetchScheduleManifest();
@@ -456,7 +500,8 @@ const App = () => {
         throw new Error(`File ${fileName} not found or accessible. If not uploading, ensure the file path is correct on the server.`);
     };    
 
-    const handleLoadData = useCallback(async () => {
+    const handleLoadData = useCallback(async (options = {}) => {
+        const { clearSelections = true } = options;
         if (!selectedDataSource) { setMessage("Please select a file to load."); return; }
         setIsLoading(true);
         setDataLoaded(false);
@@ -482,8 +527,10 @@ const App = () => {
             const processedData = processAndSetData(rawData);
             setSeasonsData(processedData);
             setDataLoaded(true);
-            setSelectedSeriesIds(new Set());
-            setSelectedTrackTypes(new Set()); // Clear track type filter
+            if (clearSelections) {
+                setSelectedSeriesIds(new Set());
+                setSelectedTrackTypes(new Set()); // Clear track type filter
+            }
             setShowCalendarTable(false);
             setTableSeriesData([]);
         } catch (error) {
@@ -496,6 +543,14 @@ const App = () => {
             setIsLoading(false);
         }
     }, [selectedDataSource, fileDataMap, processAndSetData]);
+
+    // Effect to automatically load data on initial page load
+    useEffect(() => {
+        if (selectedDataSource && !initialLoadPerformed.current) {
+            initialLoadPerformed.current = true;
+            handleLoadData({ clearSelections: false });
+        }
+    }, [selectedDataSource, handleLoadData]);
 
     const handleFileChange = useCallback((event) => {
         const file = event.target.files[0];
@@ -510,6 +565,12 @@ const App = () => {
     const filteredSeries = useMemo(() => {
         if (!seasonsData || !Array.isArray(seasonsData) || seasonsData.length === 0) return [];
         return seasonsData.filter(season => {
+            if (!season || !season.schedules) return false;
+
+            // Filter for year-long series based on the checkbox
+            const isYearLong = season.schedules.length > 12;
+            if (isYearLong && !includeYearLongSeries) return false;
+
             if (!season || !season.license_group_human_readable) return false;
             const matchesLevel = selectedLicenseLevels.size === 0 || selectedLicenseLevels.has(season.license_group_human_readable);
 
@@ -520,7 +581,7 @@ const App = () => {
             const matchesSearch = !searchTerm || searchHaystack.includes(searchTerm.toLowerCase());
             return matchesLevel && matchesSearch && matchesTrackType;
         });
-    }, [seasonsData, selectedLicenseLevels, searchTerm, selectedTrackTypes]);
+    }, [seasonsData, selectedLicenseLevels, searchTerm, selectedTrackTypes, includeYearLongSeries]);
 
     const handleSelectAllChange = useCallback(() => {
         if (allSeriesSelected) {
@@ -540,6 +601,16 @@ const App = () => {
     const handleSearchChange = useCallback((event) => { setSearchTerm(event.target.value); }, []);
     const handleSeriesSelectionChange = useCallback((seriesId) => { setSelectedSeriesIds(prev => { const newSet = new Set(prev); if (newSet.has(seriesId)) newSet.delete(seriesId); else newSet.add(seriesId); return newSet; }); }, []);
     const handleTrackTypeChange = useCallback((type) => { setSelectedTrackTypes(prev => { const newSet = new Set(prev); if (newSet.has(type)) newSet.delete(type); else newSet.add(type); return newSet; }); }, []);
+
+    const handleReset = useCallback(() => {
+        setSelectedSeriesIds(new Set());
+        setSelectedLicenseLevels(new Set());
+        setSelectedTrackTypes(new Set());
+        setSearchTerm('');
+        setShowCalendarTable(false);
+        setTableSeriesData([]);
+        setMessage('Selections and filters have been reset.');
+    }, []); // No dependencies needed as it only calls setters with initial values.
 
     const getTracksForSingleSeries = useCallback((series, minimizerActive, replacerFunc) => {
         if (!series || !series.schedules) return [];
@@ -959,6 +1030,15 @@ const App = () => {
                                         />
                                         <span className={`${isDarkMode ? 'text-neutral-100' : 'text-gray-700'}`}>Minimize Text</span>
                                     </label>
+                                    <label className="flex items-center space-x-2 cursor-pointer ml-4">
+                                        <input
+                                            type="checkbox"
+                                            checked={includeYearLongSeries}
+                                            onChange={() => setIncludeYearLongSeries(prev => !prev)}
+                                            className="form-checkbox h-5 w-5 text-blue-600 rounded-sm focus:ring-blue-500"
+                                        />
+                                        <span className={`${isDarkMode ? 'text-neutral-100' : 'text-gray-700'}`}>Include Year-Long Series</span>
+                                    </label>
                                     <button onClick={handleSearchToggle} className={`ml-3 p-1 rounded-full ${isDarkMode ? 'text-neutral-300 hover:text-white' : 'text-gray-600 hover:text-black'}`}><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.197 5.197a7.5 7.5 0 0 0 10.607 10.607Z" /></svg></button>
                                     <input type="text" placeholder="Search..." value={searchTerm} onChange={handleSearchChange} className={`ml-4 px-3 py-1.5 border rounded-md shadow-xs transition-all ${showSearchInput ? 'w-64 opacity-100' : 'w-0 opacity-0'} ${isDarkMode ? 'bg-neutral-700 border-neutral-600' : 'bg-white border-gray-300'}`} />
                                 </div>
@@ -1063,9 +1143,10 @@ const App = () => {
                                 )}
                             </div>
                         </div>
-                        <div className="flex flex-col sm:flex-row justify-center gap-4 mb-8">
-                           <button onClick={generateCsv} className="flex-1 bg-green-600 text-white font-bold py-3 px-6 rounded-lg shadow-lg hover:bg-green-700">Generate CSV</button>
-                           <button onClick={generateCalendarTable} className="flex-1 bg-purple-600 text-white font-bold py-3 px-6 rounded-lg shadow-lg hover:bg-purple-700">Generate Calendar Table</button>
+                        <div className="flex flex-col sm:flex-row justify-center items-center gap-4 mb-8">
+                           <button onClick={generateCalendarTable} className="w-full sm:flex-1 bg-purple-600 text-white font-bold py-3 px-6 rounded-lg shadow-lg hover:bg-purple-700">Generate Calendar Table</button>
+                           <button onClick={handleReset} className="w-full sm:w-auto bg-red-600 text-white font-bold py-3 px-6 rounded-lg shadow-lg hover:bg-red-700 whitespace-nowrap">Reset</button>
+                           <button onClick={generateCsv} className="w-full sm:flex-1 bg-green-600 text-white font-bold py-3 px-6 rounded-lg shadow-lg hover:bg-green-700">Generate CSV</button>
                         </div>
                     </>
                  )}
