@@ -464,7 +464,9 @@ const App = () => {
         if (!Array.isArray(data)) { return []; }
         const newCarIdMap = new Map();
         const processedData = data.map(season => {
-            const schedulesWithDates = season.schedules?.map(s => ({...s, startDateObj: new Date(s.start_date + 'T00:00:00')})) || [];
+            // iRacing weeks are based on UTC. Append 'Z' to treat date strings as UTC.
+            // This prevents the user's local timezone from shifting the date.
+            const schedulesWithDates = season.schedules?.map(s => ({...s, startDateObj: new Date(s.start_date + 'T00:00:00Z')})) || [];
             let isSameTrackEveryWeek = false;
             if (schedulesWithDates.length > 0) {
                 const firstTrackName = schedulesWithDates[0].track?.track_name;
@@ -857,7 +859,7 @@ const App = () => {
     }, [seasonsData, selectedSeriesIds, getCarsForWeek, isMinimizerActive, applyReplacements, applyCarListReplacements]);
 
     const CalendarTable = React.forwardRef(({ seriesData, isDarkMode, getCarsForWeek, applyReplacements, isMinimizerActive, timeReplacements: localTimeReplacements }, ref) => {
-        if (!seriesData || seriesData.length === 0) return null;
+        if (!seriesData || seriesData.length === 0) return null;        
         
         const allSchedules = seriesData.flatMap(s => s.schedules);
         if (allSchedules.length === 0) return <p>No schedules found for selected series.</p>;
@@ -865,18 +867,24 @@ const App = () => {
         const dates = allSchedules.map(s => s.startDateObj);
         const minDate = new Date(Math.min(...dates));
         const maxDate = new Date(Math.max(...dates));
-        
-        const calendarWeeks = [];
-        let currentWeekStart = new Date(minDate);
-        currentWeekStart.setDate(currentWeekStart.getDate() - currentWeekStart.getDay());
 
-        while(currentWeekStart <= maxDate) {
-            const currentWeekEnd = new Date(currentWeekStart);
-            currentWeekEnd.setDate(currentWeekEnd.getDate() + 6);
-            calendarWeeks.push({ start: currentWeekStart, end: currentWeekEnd });
-            currentWeekStart = new Date(currentWeekEnd);
-            currentWeekStart.setDate(currentWeekStart.getDate() + 1);
+        // iRacing weeks start on Tuesday 00:00 UTC. The schedule dates are these Tuesdays.
+        // We generate week boundaries from Tuesday (inclusive) to the next Tuesday (exclusive).
+        const calendarWeeks = [];
+        if (!isNaN(minDate.getTime())) {
+            let weekIterator = new Date(minDate.getTime());
+            while(weekIterator <= maxDate) {
+                const weekStart = new Date(weekIterator.getTime());
+                const weekEnd = new Date(weekIterator.getTime());
+                // A week runs for 7 full days.
+                weekEnd.setUTCDate(weekEnd.getUTCDate() + 7);
+
+                calendarWeeks.push({ start: weekStart, end: weekEnd });
+                weekIterator = weekEnd;
+            }
         }
+
+        const now = new Date(); // The current moment in time (UTC based).
 
         return (
             <div ref={ref} className={`mt-8 p-6 shadow-lg border ${isDarkMode ? 'bg-neutral-800 border-neutral-700' : 'bg-white border-gray-200'}`}>
@@ -900,11 +908,13 @@ const App = () => {
                             </tr>
                         </thead>
                         <tbody className={`${isDarkMode ? 'bg-neutral-800' : 'bg-white'} divide-y ${isDarkMode ? 'divide-neutral-700' : 'divide-gray-200'}`}>
-                            {calendarWeeks.map((week, i) => (
-                                <tr key={i}>
+                            {calendarWeeks.map((week, i) => {
+                                const isCurrentWeek = now >= week.start && now < week.end;
+                                return (
+                                <tr key={i} className={`transition-colors duration-300 ${isCurrentWeek ? (isDarkMode ? 'bg-yellow-900/50' : 'bg-yellow-100') : ''}`}>
                                     <td className={`px-6 py-4 whitespace-nowrap text-sm font-medium ${isDarkMode ? 'text-neutral-100' : 'text-gray-900'} text-center`}>{i + 1}</td>
                                     {seriesData.map(season => {
-                                        const schedule = season.schedules?.find(s => s.startDateObj >= week.start && s.startDateObj <= week.end);
+                                        const schedule = season.schedules?.find(s => s.startDateObj.getTime() === week.start.getTime());
                                         let cellContentHtml = 'N/A';
                                         if (schedule) {
                                             let trackPart = '';
@@ -972,7 +982,8 @@ const App = () => {
                                         return <td key={`${season.series_id || season.season_name}-${i}`} className={`px-3 py-4 whitespace-nowrap text-sm ${isDarkMode ? 'text-neutral-100' : 'text-gray-500'}`} dangerouslySetInnerHTML={{ __html: cellContentHtml }}></td>;
                                     })}
                                 </tr>
-                            ))}
+                                );
+                            })}
                         </tbody>
                     </table>
                 </div>
