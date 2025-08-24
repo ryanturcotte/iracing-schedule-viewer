@@ -43,3 +43,8 @@ The majority of code was written by Google Gemini with the exception of the text
 2. Run 'npm install'
 3. Run 'npm run dev'
 
+## How to build to GitHub
+
+1. Run 'npm run build' (?)
+2. Run 'npm run deploy'
+3. Wait a minute or two, then should be updated.
