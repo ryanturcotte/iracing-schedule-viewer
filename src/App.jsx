@@ -382,13 +382,14 @@ const App = () => {
     }, [seasonsData]);
 
     // Effect to save selections to cookies
+    // Save cookies for 90 days, about the length of an iRacing season.
     useEffect(() => {
-        setCookie('selectedSeriesIds', selectedSeriesIds, 30); // Save for 30 days
-        setCookie('selectedLicenseLevels', selectedLicenseLevels, 30);
-        setCookie('selectedTrackTypes', selectedTrackTypes, 30);
-        setCookie('selectedDataSource', selectedDataSource, 30);
-        setCookie('isMinimizerActive', isMinimizerActive, 30);
-        setCookie('includeYearLongSeries', includeYearLongSeries, 30);
+        setCookie('selectedSeriesIds', selectedSeriesIds, 90); 
+        setCookie('selectedLicenseLevels', selectedLicenseLevels, 90);
+        setCookie('selectedTrackTypes', selectedTrackTypes, 90);
+        setCookie('selectedDataSource', selectedDataSource, 90);
+        setCookie('isMinimizerActive', isMinimizerActive, 90);
+        setCookie('includeYearLongSeries', includeYearLongSeries, 90);
     }, [selectedSeriesIds, selectedLicenseLevels, selectedTrackTypes, selectedDataSource, isMinimizerActive, includeYearLongSeries]);
 
     useEffect(() => {
