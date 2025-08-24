@@ -38,6 +38,7 @@ export const trackNameReplacements = [
     { original : "Federated Auto Parts Raceway at I-55", replacement : "I-55" },
     { original : "Lånkebanen (Hell RX)", replacement : "Hell RX" },
     { original : "MotorLand Aragón", replacement : "Aragon" },
+    { original : "Shell V-Power Motorsport Park at The Bend", replacement : "The Bend"},
 
     // General wording replacements
     // Some of these are probably superfluous with all the above tracks
