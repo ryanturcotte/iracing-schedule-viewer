@@ -325,12 +325,12 @@ const App = () => {
     const [seasonsData, setSeasonsData] = useState([]);
     const [availableFiles, setAvailableFiles] = useState([]); // Initialize as empty, will be populated from manifest
     const [fileDataMap, setFileDataMap] = useState(new Map());
-    const [selectedDataSource, setSelectedDataSource] = useState(() => getCookie('selectedDataSource') || 'season-series-25s3.json');
+    const [selectedDataSource, setSelectedDataSource] = useState(() => getCookie('selectedDataSource') ?? 'season-series-25s3.json');
     const [selectedLicenseLevels, setSelectedLicenseLevels] = useState(() => new Set(getCookie('selectedLicenseLevels') || []));
     const [selectedSeriesIds, setSelectedSeriesIds] = useState(() => new Set(getCookie('selectedSeriesIds') || []));
     const [selectedTrackTypes, setSelectedTrackTypes] = useState(() => new Set(getCookie('selectedTrackTypes') || []));
     const [tableSeriesData, setTableSeriesData] = useState([]);
-    const [showCalendarTable, setShowCalendarTable] = useState(false);
+    const [showCalendarTable, setShowCalendarTable] = useState(false);    const [showDataSourceSelector, setShowDataSourceSelector] = useState(() => !getCookie('selectedDataSource'));
     const [message, setMessage] = useState('Please select a data source or upload a file.');
     const [isLoading, setIsLoading] = useState(false); // Start false, will be set true during loads
     const [dataLoaded, setDataLoaded] = useState(false);
@@ -342,10 +342,12 @@ const App = () => {
     const [isMinimizerActive, setIsMinimizerActive] = useState(() => getCookie('isMinimizerActive') || false);
     const [includeYearLongSeries, setIncludeYearLongSeries] = useState(() => getCookie('includeYearLongSeries') || false);
     const initialLoadPerformed = useRef(false);
+    const initialTableGenerationAttempted = useRef(false);
     
     // State for hover tooltip
     const [hoveredSeriesTracks, setHoveredSeriesTracks] = useState(null); // { seriesId: string, tracks: string[], position: { top: number, left: number } }
     const hoverTimerRef = useRef(null);
+    const dataSourceRef = useRef(null);
 
     const licenseLevelMap = { 1: 'Rookie', 2: 'D', 3: 'C', 4: 'B', 5: 'A', 0: 'Unknown' };
     const licenseColorMap = { 'Rookie': 'bg-red-500 text-white', 'D': 'bg-orange-500 text-white', 'C': 'bg-yellow-300 text-gray-800', 'B': 'bg-green-500 text-white', 'A': 'bg-blue-500 text-white', 'Unknown': 'bg-gray-400 text-white' };
@@ -502,7 +504,7 @@ const App = () => {
     };    
 
     const handleLoadData = useCallback(async (options = {}) => {
-        const { clearSelections = true } = options;
+        const { clearSelections = true, isInitialAutoLoad = false } = options;
         if (!selectedDataSource) { setMessage("Please select a file to load."); return; }
         setIsLoading(true);
         setDataLoaded(false);
@@ -532,26 +534,61 @@ const App = () => {
                 setSelectedSeriesIds(new Set());
                 setSelectedTrackTypes(new Set()); // Clear track type filter
             }
-            setShowCalendarTable(false);
-            setTableSeriesData([]);
+            // Only reset the calendar if it's a manual load, not the initial auto-load
+            if (!isInitialAutoLoad) {
+                setShowCalendarTable(false);
+                setTableSeriesData([]);
+            }
         } catch (error) {
             setMessage(`Error loading data: ${error.message}`);
             console.error('Error loading data:', error);
             setDataLoaded(false);
         } finally {
-            // Also clear filters if loading fails or is just completed, to ensure a fresh state
-            // setSelectedTrackTypes(new Set()); // Already handled in success, consider if needed for error too
             setIsLoading(false);
         }
-    }, [selectedDataSource, fileDataMap, processAndSetData]);
+    }, [selectedDataSource, fileDataMap, processAndSetData]); // isInitialAutoLoad is a transient option, not a dependency
 
     // Effect to automatically load data on initial page load
     useEffect(() => {
-        if (selectedDataSource && !initialLoadPerformed.current) {
+        const dataSourceFromCookie = getCookie('selectedDataSource');
+        // Only auto-load if the data source was explicitly set by the user in a previous session (i.e., the cookie exists).
+        // This prevents auto-loading on a fresh visit or after a reset.
+        if (dataSourceFromCookie && selectedDataSource === dataSourceFromCookie && !initialLoadPerformed.current) {
             initialLoadPerformed.current = true;
-            handleLoadData({ clearSelections: false });
+            handleLoadData({ clearSelections: false, isInitialAutoLoad: true });
         }
-    }, [selectedDataSource, handleLoadData]);
+    }, [selectedDataSource, handleLoadData]); // handleLoadData is memoized, selectedDataSource is the trigger
+
+    const generateCalendarTable = useCallback((customMessage) => {
+        const selected = seasonsData.filter(season => selectedSeriesIds.has(season.series_id || season.season_name));
+        if (selected.length === 0) {
+            setMessage('Please select at least one series to generate the calendar table.');
+            return;
+        }
+        setTableSeriesData(selected);
+        setShowCalendarTable(true);
+        // Use the custom message if it's a string, otherwise use the default.
+        // This prevents React event objects from being set as the message when called from a button.
+        const messageToSet = typeof customMessage === 'string' ? customMessage : 'Calendar table generated!';
+        setMessage(messageToSet);
+    }, [seasonsData, selectedSeriesIds]);
+
+    // Effect to auto-generate calendar on initial load if selections exist
+    useEffect(() => {
+        if (dataLoaded && selectedSeriesIds.size > 0 && !initialTableGenerationAttempted.current) {
+            const today = new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
+            generateCalendarTable(`Calendar table restored from saved selections on ${today}.`);
+            initialTableGenerationAttempted.current = true;
+        }
+    }, [dataLoaded, selectedSeriesIds.size, generateCalendarTable]);
+
+    // Effect to scroll to the calendar table when it's generated
+    useEffect(() => {
+        if (showCalendarTable && calendarTableRef.current) {
+            // A brief timeout helps ensure the element is in the DOM and ready for scrolling, especially with transitions.
+            calendarTableRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+    }, [showCalendarTable, tableSeriesData]); // Trigger on visibility change or data change
 
     const handleFileChange = useCallback((event) => {
         const file = event.target.files[0];
@@ -608,10 +645,22 @@ const App = () => {
         setSelectedLicenseLevels(new Set());
         setSelectedTrackTypes(new Set());
         setSearchTerm('');
+        setIsMinimizerActive(false);
+        setIncludeYearLongSeries(false);
         setShowCalendarTable(false);
         setTableSeriesData([]);
         setMessage('Selections and filters have been reset.');
-    }, []); // No dependencies needed as it only calls setters with initial values.
+        setShowDataSourceSelector(true);
+        // Reset the data source dropdown to the default value for the UI.
+        setSelectedDataSource('season-series-25s3.json');
+        // Clear all cookies to ensure a fresh start on the next page load.
+        setCookie('selectedDataSource', '', -1);
+        setCookie('selectedSeriesIds', [], -1);
+        setCookie('selectedLicenseLevels', [], -1);
+        setCookie('selectedTrackTypes', [], -1);
+        setCookie('isMinimizerActive', false, -1);
+        setCookie('includeYearLongSeries', false, -1);
+    }, []);
 
     const getTracksForSingleSeries = useCallback((series, minimizerActive, replacerFunc) => {
         if (!series || !series.schedules) return [];
@@ -807,16 +856,6 @@ const App = () => {
 
     }, [seasonsData, selectedSeriesIds, getCarsForWeek, isMinimizerActive, applyReplacements, applyCarListReplacements]);
 
-    const generateCalendarTable = useCallback(() => {
-        const selected = seasonsData.filter(season => selectedSeriesIds.has(season.series_id || season.season_name));
-        if (selected.length === 0) {
-            setMessage('Please select at least one series to generate the calendar table.');
-            return;
-        }
-        setTableSeriesData(selected);
-        setShowCalendarTable(true);
-        setMessage('Calendar table generated!');
-    }, [seasonsData, selectedSeriesIds]); // isMinimizerActive & applyReplacements are passed to CalendarTable, not used directly here
     const CalendarTable = React.forwardRef(({ seriesData, isDarkMode, getCarsForWeek, applyReplacements, isMinimizerActive, timeReplacements: localTimeReplacements }, ref) => {
         if (!seriesData || seriesData.length === 0) return null;
         
@@ -945,7 +984,22 @@ const App = () => {
         <div className={`min-h-screen p-4 font-inter transition-colors duration-300 ${isDarkMode ? 'bg-neutral-950 text-neutral-100' : 'bg-gray-100 text-gray-800'}`}>
             <style>{`::selection { background-color: #3b82f6; color: #ffffff; } .fade-enter { opacity: 0; } .fade-enter-active { opacity: 1; transition: opacity 200ms; } .fade-exit { opacity: 1; } .fade-exit-active { opacity: 0; transition: opacity 200ms; } .table-appear { opacity: 0; transform: translateY(20px); } .table-appear-active { opacity: 1; transform: translateY(0); transition: opacity 300ms, transform 300ms; } `}</style>
             <div className={`max-w-7xl mx-auto shadow-lg p-6 sm:p-8 transition-colors duration-300 ${isDarkMode ? 'bg-neutral-900' : 'bg-white'}`}>
-                <h1 className={`text-3xl sm:text-4xl font-bold text-center mb-8 relative ${isDarkMode ? 'text-neutral-100' : 'text-blue-700'}`}>iRacing Schedule Viewer and Spreadsheet Creator
+                <h1 className={`text-3xl sm:text-4xl font-bold text-center mb-8 relative ${isDarkMode ? 'text-neutral-100' : 'text-blue-700'}`}>
+                    <button
+                        onClick={() => setShowDataSourceSelector(prev => !prev)}
+                        className={`absolute top-0 left-0 p-2 m-2 rounded-full shadow-md hover:shadow-lg transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-blue-500
+                        ${isDarkMode
+                            ? 'bg-neutral-800 text-neutral-200'
+                            : 'bg-gray-200 text-gray-800'
+                        }`
+                        }
+                        title="Toggle Data Source Selector"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="size-6">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375" />
+                        </svg>
+                    </button>
+                    iRacing Schedule Viewer and Spreadsheet Creator
                     <button
                         onClick={() => setIsDarkMode(prevMode => !prevMode)}
                         className={`absolute top-0 right-14 p-2 m-2 rounded-full shadow-md hover:shadow-lg transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-blue-500
@@ -979,34 +1033,49 @@ const App = () => {
                     >
                         ❓
                     </a>
-                </h1>           
-                <div className={`mb-8 p-6 shadow-inner ${isDarkMode ? 'bg-neutral-800' : 'bg-yellow-50'}`}>
-                    <h2 className={`text-2xl font-semibold mb-4 ${isDarkMode ? 'text-yellow-300' : 'text-yellow-700'}`}>Select Data Source</h2>
-                    <div className="flex items-center gap-4">
-                        <select value={selectedDataSource} onChange={e => setSelectedDataSource(e.target.value)} className={`grow p-2 border rounded-md shadow-xs ${isDarkMode ? 'bg-neutral-700 border-neutral-600' : 'bg-white border-gray-300'}`}>
-                            <option value="" disabled>Select a source...</option>
-                            {availableFiles.map(file => <option key={file} value={file}>{file}</option>)}
-                        </select>
-                        <button onClick={handleLoadData} disabled={isLoading || !selectedDataSource} className="bg-blue-600 text-white font-bold py-2 px-6 rounded-lg shadow-lg hover:bg-blue-700 disabled:bg-gray-500 disabled:cursor-not-allowed">
-                            {isLoading ? 'Loading...' : 'Load Data'}
-                        </button>
-                    </div>
-                    <div className="mt-4 flex items-center justify-between">
-                        <div>
-                            <span className={`text-sm ${isDarkMode ? 'text-neutral-400' : 'text-gray-600'}`}>or upload a custom file:</span>
-                            <input type="file" accept=".json,.pdf" onChange={handleFileChange} className={`block w-full text-sm mt-1 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold ${isDarkMode ? 'text-neutral-300 file:bg-neutral-700 file:text-neutral-200' : 'file:bg-blue-50 file:text-blue-700'}`} />
-                        </div>
-                        <a href={`${import.meta.env.BASE_URL}excel template/Template.xlsx`} download="iRacingScheduleTemplate.xlsx" className={`text-sm font-medium px-4 py-2 rounded-md shadow-sm ${isDarkMode ? 'bg-green-700 hover:bg-green-600 text-white' : 'bg-green-500 hover:bg-green-600 text-white'}`}>
-                            Download Excel Template
-                        </a>
-                    </div>
-                </div>
+                </h1>
+                <TransitionGroup>
+                    {showDataSourceSelector && (
+                        <CSSTransition nodeRef={dataSourceRef} key="datasource-selector" timeout={200} classNames="fade">
+                            <div ref={dataSourceRef} className={`mb-8 p-6 shadow-inner ${isDarkMode ? 'bg-neutral-800' : 'bg-yellow-50'}`}>
+                                <h2 className={`text-2xl font-semibold mb-4 ${isDarkMode ? 'text-yellow-300' : 'text-yellow-700'}`}>Select Data Source</h2>
+                                <div className="flex items-center gap-4">
+                                    <select value={selectedDataSource} onChange={e => setSelectedDataSource(e.target.value)} className={`grow p-2 border rounded-md shadow-xs ${isDarkMode ? 'bg-neutral-700 border-neutral-600' : 'bg-white border-gray-300'}`}>
+                                        <option value="" disabled>Select a source...</option>
+                                        {availableFiles.map(file => <option key={file} value={file}>{file}</option>)}
+                                    </select>
+                                    <button onClick={handleLoadData} disabled={isLoading || !selectedDataSource} className="bg-blue-600 text-white font-bold py-2 px-6 rounded-lg shadow-lg hover:bg-blue-700 disabled:bg-gray-500 disabled:cursor-not-allowed">
+                                        {isLoading ? 'Loading...' : 'Load Data'}
+                                    </button>
+                                </div>
+                                <div className="mt-4 flex items-center justify-between">
+                                    <div>
+                                        <span className={`text-sm ${isDarkMode ? 'text-neutral-400' : 'text-gray-600'}`}>or upload a custom file:</span>
+                                        <input type="file" accept=".json,.pdf" onChange={handleFileChange} className={`block w-full text-sm mt-1 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold ${isDarkMode ? 'text-neutral-300 file:bg-neutral-700 file:text-neutral-200' : 'file:bg-blue-50 file:text-blue-700'}`} />
+                                    </div>
+                                    <a href={`${import.meta.env.BASE_URL}excel template/Template.xlsx`} download="iRacingScheduleTemplate.xlsx" className={`text-sm font-medium px-4 py-2 rounded-md shadow-sm ${isDarkMode ? 'bg-green-700 hover:bg-green-600 text-white' : 'bg-green-500 hover:bg-green-600 text-white'}`}>
+                                        Download Excel Template
+                                    </a>
+                                </div>
+                            </div>
+                        </CSSTransition>
+                    )}
+                </TransitionGroup>
 
                 <TransitionGroup>
                   {message && ( 
                     <CSSTransition nodeRef={messageRef} key="message-transition" timeout={200} classNames="fade">
                         <div ref={messageRef} className={`mb-6 p-3 shadow-xs text-center ${isDarkMode ? 'bg-blue-900' : 'bg-blue-100 text-blue-800'} rounded-md`}>{message}</div>
                     </CSSTransition> 
+                  )}
+                </TransitionGroup>
+
+                {/* Calendar table is now here at the top */}
+                <TransitionGroup>
+                  {showCalendarTable && tableSeriesData.length > 0 && (
+                    <CSSTransition nodeRef={calendarTableRef} key="calendar-table-transition" timeout={500} classNames="table-appear">
+                      <CalendarTable ref={calendarTableRef} seriesData={tableSeriesData} isDarkMode={isDarkMode} getCarsForWeek={getCarsForWeek} applyReplacements={applyReplacements} isMinimizerActive={isMinimizerActive} timeReplacements={timeReplacements} />
+                    </CSSTransition>
                   )}
                 </TransitionGroup>
 
@@ -1152,14 +1221,6 @@ const App = () => {
                     </>
                  )}
                  
-                 <TransitionGroup>
-                  {showCalendarTable && tableSeriesData.length > 0 && (
-                    <CSSTransition nodeRef={calendarTableRef} key="calendar-table-transition" timeout={500} classNames="table-appear">
-                      <CalendarTable ref={calendarTableRef} seriesData={tableSeriesData} isDarkMode={isDarkMode} getCarsForWeek={getCarsForWeek} applyReplacements={applyReplacements} isMinimizerActive={isMinimizerActive} timeReplacements={timeReplacements} />
-                    </CSSTransition>
-                  )}
-                </TransitionGroup>
-
                 {/* Track Tooltip */}
                 {hoveredSeriesTracks && hoveredSeriesTracks.tracks.length > 0 && (
                     <div
