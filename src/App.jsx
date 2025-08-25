@@ -995,7 +995,7 @@ const App = () => {
                             </div>
                         </div>
                         <div className="flex flex-col sm:flex-row justify-center items-center gap-4 mb-8">
-                           <button onClick={generateCalendarTable} className="w-full sm:flex-1 bg-purple-600 text-white font-bold py-3 px-6 rounded-lg shadow-lg hover:bg-purple-700">Generate Calendar Table</button>
+                           <button onClick={generateCalendarTable} className="w-full sm:flex-1 bg-purple-600 text-white font-bold py-3 px-6 rounded-lg shadow-lg hover:bg-purple-700">Generate Schedule</button>
                            <button onClick={handleReset} className="w-full sm:w-auto bg-red-600 text-white font-bold py-3 px-6 rounded-lg shadow-lg hover:bg-red-700 whitespace-nowrap">Reset</button>
                            <button onClick={generateCsv} className="w-full sm:flex-1 bg-green-600 text-white font-bold py-3 px-6 rounded-lg shadow-lg hover:bg-green-700">Generate CSV</button>
                         </div>
