@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { CSSTransition, TransitionGroup } from 'react-transition-group';
 import { trackNameReplacements, trackConfigReplacements, carConfigReplacements, timeReplacements } from './replacementMappings';
-import { usePdfParser } from './hooks/usePdfParser.js';
+import { usePdfParser } from './hooks/usePdfParser';
+import { useFileLoader } from './hooks/useFileLoader';
 
 // Helper function to format track type strings
 const formatTrackType = (type) => {
@@ -111,6 +112,7 @@ const TracksDisplayTable = ({ selectedSeriesData, isDarkMode, applyReplacements,
 // Main App component
 const App = () => {
     const { parsePdf } = usePdfParser();
+    const { loadFile } = useFileLoader();
     const [seasonsData, setSeasonsData] = useState([]);
     const [availableFiles, setAvailableFiles] = useState([]); // Initialize as empty, will be populated from manifest
     const [fileDataMap, setFileDataMap] = useState(new Map());
@@ -124,7 +126,7 @@ const App = () => {
     const [isLoading, setIsLoading] = useState(false); // Start false, will be set true during loads
     const [dataLoaded, setDataLoaded] = useState(false);
     const [carIdMap, setCarIdMap] = useState(new Map());
-    const [isDarkMode, setIsDarkMode] = useState(true);
+    const [isDarkMode, setIsDarkMode] = useState(() => getCookie('isDarkMode') ?? true);
     const [showSearchInput, setShowSearchInput] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     const [allSeriesSelected, setAllSeriesSelected] = useState(false);
@@ -181,7 +183,8 @@ const App = () => {
         setCookie('selectedDataSource', selectedDataSource, 90);
         setCookie('isMinimizerActive', isMinimizerActive, 90);
         setCookie('includeYearLongSeries', includeYearLongSeries, 90);
-    }, [selectedSeriesIds, selectedLicenseLevels, selectedTrackTypes, selectedDataSource, isMinimizerActive, includeYearLongSeries]);
+        setCookie('isDarkMode', isDarkMode, 90);
+    }, [selectedSeriesIds, selectedLicenseLevels, selectedTrackTypes, selectedDataSource, isMinimizerActive, includeYearLongSeries, isDarkMode]);
 
     useEffect(() => {
         const fetchScheduleManifest = async () => {
@@ -269,31 +272,6 @@ const App = () => {
         return processedData;
     }, []);
     
-    const fetchFileContent = async (fileName, fileDataMap) => {
-        if (fileDataMap.has(fileName)) {
-            const file = fileDataMap.get(fileName);
-            if (file.type.startsWith('application/json')) return JSON.parse(await file.text());
-            if (file.type.startsWith('application/pdf')) return file;
-        }
-        try {
-            // Files are expected in 'public/schedules/' in source, deployed to 'schedules/' at the base URL.
-            // import.meta.env.BASE_URL is set by Vite based on the 'base' config (e.g., '/iracing-schedule-viewer/').
-            const scheduleFileUrl = `${import.meta.env.BASE_URL}schedules/${fileName}`;
-            const response = await fetch(scheduleFileUrl);
-            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-            if (fileName.endsWith('.json')) return await response.json();
-            if (fileName.endsWith('.pdf')) {
-                const contentType = response.headers.get("content-type");
-                if (contentType && contentType.includes("application/pdf")) {
-                    return await response.blob();
-                } else {
-                    throw new Error(`Expected PDF, but received content type: ${contentType || 'N/A'} for ${fileName}`);
-                }
-            }
-        } catch (e) { console.error(`Could not fetch hosted file ${fileName}:`, e); }
-        throw new Error(`File ${fileName} not found or accessible. If not uploading, ensure the file path is correct on the server.`);
-    };    
-
     const handleLoadData = useCallback(async (options = {}) => {
         const { clearSelections = true, isInitialAutoLoad = false } = options;
         if (!selectedDataSource) { setMessage("Please select a file to load."); return; }
@@ -302,9 +280,9 @@ const App = () => {
         setSeasonsData([]);
         setMessage('Loading data...');
         try {
-            const fileData = await fetchFileContent(selectedDataSource, fileDataMap);
+            const { type, data: fileData } = await loadFile(selectedDataSource, fileDataMap);
             let rawData;
-            if (selectedDataSource.endsWith('.pdf')) {
+            if (type === 'pdf') {
                 setMessage('Parsing PDF... This may take a moment.');
                 rawData = await parsePdf(fileData);
                 if (rawData && rawData.length > 0) {
@@ -314,7 +292,7 @@ const App = () => {
                     setIsLoading(false);
                     return;
                 }
-            } else {
+            } else { // 'json'
                 rawData = fileData;
                 setMessage(`Successfully loaded JSON: Found ${rawData.length} series.`);
             }
@@ -337,7 +315,7 @@ const App = () => {
         } finally {
             setIsLoading(false);
         }
-    }, [selectedDataSource, fileDataMap, processAndSetData, parsePdf]); // isInitialAutoLoad is a transient option, not a dependency
+    }, [selectedDataSource, fileDataMap, processAndSetData, parsePdf, loadFile]); // isInitialAutoLoad is a transient option, not a dependency
 
     // Effect to automatically load data on initial page load
     useEffect(() => {
@@ -438,6 +416,7 @@ const App = () => {
         setSearchTerm('');
         setIsMinimizerActive(false);
         setIncludeYearLongSeries(false);
+        setIsDarkMode(true); // Reset to default dark mode
         setShowCalendarTable(false);
         setTableSeriesData([]);
         setMessage('Selections and filters have been reset.');
@@ -451,6 +430,7 @@ const App = () => {
         setCookie('selectedTrackTypes', [], -1);
         setCookie('isMinimizerActive', false, -1);
         setCookie('includeYearLongSeries', false, -1);
+        setCookie('isDarkMode', true, -1);
     }, []);
 
     const getTracksForSingleSeries = useCallback((series, minimizerActive, replacerFunc) => {
