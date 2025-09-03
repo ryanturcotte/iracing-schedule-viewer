@@ -25,3 +25,5 @@ dist-ssr
 dist/index.html
 replacementsPS
 tailwind.config.js
+other/Gemini ideas.txt
+other/ring-meister-raw-pdfjs-debug.json

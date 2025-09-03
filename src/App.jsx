@@ -132,6 +132,7 @@ const App = () => {
     const [allSeriesSelected, setAllSeriesSelected] = useState(false);
     const [isMinimizerActive, setIsMinimizerActive] = useState(() => getCookie('isMinimizerActive') || false);
     const [includeYearLongSeries, setIncludeYearLongSeries] = useState(() => getCookie('includeYearLongSeries') || false);
+    const [isDebugMode, setIsDebugMode] = useState(() => getCookie('isDebugMode') ?? false);
     const initialLoadPerformed = useRef(false);
     const initialTableGenerationAttempted = useRef(false);
     
@@ -284,7 +285,7 @@ const App = () => {
             let rawData;
             if (type === 'pdf') {
                 setMessage('Parsing PDF... This may take a moment.');
-                rawData = await parsePdf(fileData);
+                rawData = await parsePdf(fileData, { debug: isDebugMode });
                 if (rawData && rawData.length > 0) {
                     setMessage(`Successfully parsed PDF: Found ${rawData.length} series.`);
                 } else {
@@ -315,7 +316,7 @@ const App = () => {
         } finally {
             setIsLoading(false);
         }
-    }, [selectedDataSource, fileDataMap, processAndSetData, parsePdf, loadFile]); // isInitialAutoLoad is a transient option, not a dependency
+    }, [selectedDataSource, fileDataMap, processAndSetData, parsePdf, loadFile, isDebugMode]); // isInitialAutoLoad is a transient option, not a dependency
 
     // Effect to automatically load data on initial page load
     useEffect(() => {

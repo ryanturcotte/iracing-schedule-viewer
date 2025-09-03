@@ -26,8 +26,10 @@ The Excel template also includes conditional cell formatting for Wet weeks, (cel
 
 ## Known issues
 
-1. The logic for extracting the series from the PDF isn't perfect and is missing many series (example: Street Stock). The JSON file (only available after the new Season starts) will be more reliable.
-2. The PDF version removes series over 12 weeks. The JSON version includes them but could be better formatted.3. The "features" when loading a PDF vs. a JSON are not the same, for example rain % only shows on PDF.
+1. The logic for extracting the series from the PDF isn't perfect but it's better as of 2025-09-03. Multi-season long series break the web formatting but not the CSV formatting.
+2. The "features" when loading a PDF vs. a JSON are not the same, for example rain % only shows on PDF.
+3. Ring Meister from a PDF shows the cars although text is not perfect or minimized. The pop-up/tooltip is not showing the cars however.
+4. Resetting the page and then reloading doesn't create a completely clean slate. Removing website cookies will.
 
 ## Background and AI Usage
 
@@ -48,3 +50,8 @@ The majority of code was written by Google Gemini with the exception of the text
 1. Configure GitHub Pages and node.js properly.
 2. Run 'npm run deploy'
 3. Wait a minute or two, then should be updated.
+
+## How to turn on debug mode
+
+1. Create a cookie with "isDebugMode" set to true.
+2. It will ask to download the raw output from pdfjs and the parsed schedule json.

@@ -1,26 +1,322 @@
 import { useCallback } from 'react';
 
-// The original parsePdfData function, now encapsulated within this module.
-const performPdfParsing = async (pdfFile) => {
-    // --- Control Flag for Debugging ---
-    // Set to true to enable detailed console logs and the JSON download option.
-    const DEBUG_LOGGING = true;
+// Helper function to download data as a JSON file, moved outside for broader use.
+const downloadJson = (data, filename) => {
+    if (!data || (Array.isArray(data) && data.length === 0)) {
+        console.warn(`Skipping download for ${filename} because data is empty.`);
+        return;
+    }
+    const jsonStr = JSON.stringify(data, null, 2);
+    const blob = new Blob([jsonStr], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+};
 
+// --- Start of refactored parsing logic ---
+
+const SERIES_NAME_REGEX = /^(.*?)(\s*-*\s*\d{4}\s+Season.*)$/i;
+const WEEK_REGEX = /^Week\s+(\d+)\s+\((\d{4}-\d{2}-\d{2})\)/;
+const LICENSE_REGEX = /^(Rookie|Class\s+[A-D])\s+\((\d)\.0\)\s*-->/;
+const FREQUENCY_REGEX = /^(Races\s+(?:every|at).*)$/i;
+
+/**
+ * Checks if a line is a structural or informational line that should not be treated as a car or series name.
+ * This is a key part of the parsing heuristic.
+ * @param {string} line - The line of text to check.
+ * @returns {boolean} - True if the line is structural, false otherwise.
+ */
+const isStructuralOrDetailLine = (line) => {
+    if (!line || line.trim().length === 0) return true;
+    // Regex for lines that define the structure of the schedule or series details
+    const structuralPatterns = [
+        /^(Week\s+\d+|Rookie|Class\s+[A-D]|Races\s+(?:every|at)|Min entries|See race week)/i,
+        /Penalty/i,
+        /No incident/i,
+        /DQ at/i,
+        /incidents/i,
+        /(Team racing|Split at|Drops:|Pro\/WC|GMT)/i,
+        /\d+\s+(?:laps|mins)/i,
+        /\d+°F/i,
+        /^(Detached qual|Rolling start|Fixed Setup|Open Setup|Local|Qualifying|Race|Warmup|Practice|Entries)/i,
+        /^\(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\s+\dx\)$/i, // Matches special event time lines e.g. (2025-06-21 15:00 1x)
+    ];
+    return structuralPatterns.some(regex => regex.test(line));
+};
+
+/**
+ * Heuristic to detect a new series based on week number and date resets.
+ * @param {number} parsedWeekNumber - The current week number being parsed.
+ * @param {Date} currentDate - The current date being parsed.
+ * @param {object} parsingState - The current state of the parser.
+ * @returns {boolean} - True if a new series is detected.
+ */
+const isNewSeriesHeuristic = (parsedWeekNumber, currentDate, parsingState) => {
+    const isDateReset = parsingState.lastParsedDate && currentDate < parsingState.lastParsedDate;
+    const isWeekReset = parsedWeekNumber === 1 && parsingState.lastParsedWeekNum > 1;
+    return isDateReset || isWeekReset;
+};
+
+/**
+ * Handles a line that is identified as a new series header.
+ * @returns A new series object if a new series is found, otherwise null.
+ */
+const handleNewSeriesLine = (line, seriesData, currentSeriesRef) => {
+    const seriesMatch = line.match(SERIES_NAME_REGEX);
+    if (seriesMatch && seriesMatch[1]) {
+        if (currentSeriesRef.current) {
+            seriesData.push(currentSeriesRef.current);
+        }
+        let cleanedName = seriesMatch[1].trim().replace(/^\d+\.\s*/, '');
+        if (/\bfixed\b/i.test(line) && !/\bfixed\b/i.test(cleanedName)) {
+            cleanedName += " - Fixed";
+        }
+        currentSeriesRef.current = {
+            season_name: cleanedName,
+            license_group: 0,
+            schedules: [],
+            car_types: [],
+            race_frequency: ''
+        };
+        return true;
+    }
+    return false;
+};
+
+/**
+ * Handles a line that might contain series-level information like license, frequency, or car types.
+ */
+const handleSeriesInfoLine = (line, currentSeries, licenseClassMap, DEBUG_LOGGING) => {
+    if (currentSeries.schedules.length > 0 || line.startsWith('Week')) {
+        return false; // This logic only applies before any schedules are parsed.
+    }
+
+    const licenseMatch = line.match(LICENSE_REGEX);
+    if (licenseMatch) {
+        const licenseName = licenseMatch[1];
+        const safetyRatingNum = licenseMatch[2];
+        if (DEBUG_LOGGING) console.log(`  Series Info: Found license - "${licenseName} (${safetyRatingNum}.0)"`);
+
+        if (licenseName === 'Rookie' && safetyRatingNum === '1') {
+            currentSeries.license_group = licenseClassMap['Rookie'];
+        } else {
+            const licensePromotionMap = {
+                'Rookie': licenseClassMap['D'],
+                'Class D': licenseClassMap['C'],
+                'Class C': licenseClassMap['B'],
+                'Class B': licenseClassMap['A'],
+            };
+            currentSeries.license_group = licensePromotionMap[licenseName] || 0;
+        }
+        return true;
+    }
+
+    const frequencyMatch = line.match(FREQUENCY_REGEX);
+    if (frequencyMatch) {
+        if (DEBUG_LOGGING) console.log(`  Series Info: Found frequency - "${frequencyMatch[0].trim()}"`);
+        currentSeries.race_frequency = frequencyMatch[0].trim();
+        return true;
+    }
+
+    // If it's not a known structural line, assume it's a car type.
+    if (!isStructuralOrDetailLine(line)) {
+        const existingCars = currentSeries.car_types[0]?.car_type || '';
+        currentSeries.car_types = [{ car_type: (existingCars + ' ' + line).trim() }];
+        return true;
+    }
+
+    return false;
+};
+
+/**
+ * Handles a line that is identified as a weekly schedule entry.
+ */
+const handleScheduleLine = (line, seriesData, currentSeriesRef, parsingState, DEBUG_LOGGING) => {
+    const weekMatch = line.match(WEEK_REGEX);
+    if (!weekMatch) return false;
+
+    // A new week line means we should stop looking for cars for the *previous* week.
+    parsingState.expectCarForLastSchedule = false;
+    parsingState.lastScheduleIndexForCar = -1;
+
+    const parsedWeekNumber = parseInt(weekMatch[1], 10);
+    const currentDate = new Date(weekMatch[2]);
+
+    // Heuristic for new series detection
+    if (isNewSeriesHeuristic(parsedWeekNumber, currentDate, parsingState)) {
+        const potentialSeriesName = parsingState.previousLine.trim();
+        if (potentialSeriesName && !isStructuralOrDetailLine(potentialSeriesName) && !potentialSeriesName.match(SERIES_NAME_REGEX)) {
+            if (DEBUG_LOGGING) {
+                const reason = parsingState.lastParsedDate && currentDate < parsingState.lastParsedDate ? `date reset` : `week reset`;
+                console.log(`%cNew series found (heuristic on ${reason}): "${potentialSeriesName}"`, 'color: orange; font-weight: bold;');
+            }
+            if (currentSeriesRef.current) {
+                seriesData.push(currentSeriesRef.current);
+            }
+            currentSeriesRef.current = {
+                season_name: potentialSeriesName.replace(/^\d+\.\s*/, ''),
+                license_group: 0, schedules: [], car_types: [], race_frequency: ''
+            };
+        }
+    }
+
+    parsingState.lastParsedWeekNum = parsedWeekNumber;
+    parsingState.lastParsedDate = currentDate;
+
+    let remainingLine = line.replace(WEEK_REGEX, '').trim();
+    const weekNum = parseInt(weekMatch[1], 10) - 1;
+    const startDateStr = weekMatch[2];
+
+    const lapsRegex = /(\d+\s+(?:laps|mins))$/i;
+    let laps = '';
+    const lapsMatch = remainingLine.match(lapsRegex);
+    if (lapsMatch) {
+        laps = lapsMatch[1];
+        remainingLine = remainingLine.replace(lapsRegex, '').trim();
+    }
+
+    const weatherRegex = /([$]?\d+°F[\s\S]+)/;
+    let weatherText = '';
+    const weatherMatch = remainingLine.match(weatherRegex);
+    if (weatherMatch) {
+        weatherText = weatherMatch[1];
+        remainingLine = remainingLine.replace(weatherRegex, '').trim();
+    }
+
+    let trackName = '';
+    let weeklyCars = null;
+    parsingState.expectCarForLastSchedule = false; // Reset expectation for the current line.
+
+    const currentSeries = currentSeriesRef.current;
+    if (currentSeries.season_name.includes("Ring Meister")) {
+        trackName = "Nürburgring Nordschleife - Industriefahrten";
+        
+        // Attempt to strip the known track name from the line to find the car.
+        const trackPattern = /Nürburgring Nordschleife\s*-\s*Industriefahrten/i;
+        let potentialCar = remainingLine.replace(trackPattern, '').trim();
+        
+        // Clean up leading separators that might be left over.
+        potentialCar = potentialCar.replace(/^-/, '').trim();
+
+        if (potentialCar) {
+            weeklyCars = potentialCar;
+        } else {
+            // If nothing is left, the car must be on the next line.
+            parsingState.expectCarForLastSchedule = true;
+        }
+    } else if (currentSeries.season_name.includes("Draft Master")) {
+        const parts = remainingLine.split(/\s+-\s+/);
+        if (parts.length >= 2) {
+            trackName = parts.slice(0, -1).join(' - ').trim();
+            weeklyCars = parts.pop().trim();
+        } else {
+            trackName = remainingLine.trim();
+            parsingState.expectCarForLastSchedule = true;
+        }
+    } else {
+        trackName = remainingLine.split(' (')[0].trim();
+    }
+
+    const rainRegex = /Rain chance (\d+)%/;
+    const rainMatch = weatherText.match(rainRegex);
+
+    currentSeries.schedules.push({
+        race_week_num: weekNum,
+        start_date: startDateStr,
+        track: { track_name: trackName || 'N/A' },
+        weekly_cars: weeklyCars,
+        rain_chance: rainMatch ? parseInt(rainMatch[1], 10) : 0,
+        laps: laps
+    });
+
+    if (parsingState.expectCarForLastSchedule) {
+        parsingState.lastScheduleIndexForCar = currentSeries.schedules.length - 1;
+    }
+
+    return true;
+};
+
+/**
+ * Handles a line that might be a car name for a previously parsed schedule week.
+ */
+const handleCarForScheduleLine = (line, currentSeries, parsingState, DEBUG_LOGGING) => {
+    if (!parsingState.expectCarForLastSchedule || parsingState.lastScheduleIndexForCar === -1) {
+        return false;
+    }
+
+    // If the line is blank, just ignore it and keep expecting a car.
+    if (!line || line.trim().length === 0) {
+        if (DEBUG_LOGGING) console.log(`  -> Ignoring blank line, still expecting car.`);
+        return true; // Consumed the blank line, state remains the same.
+    }
+
+    const schedule = currentSeries.schedules[parsingState.lastScheduleIndexForCar];
+    if (!schedule) {
+        parsingState.expectCarForLastSchedule = false;
+        parsingState.lastScheduleIndexForCar = -1;
+        return false;
+    }
+
+    if (DEBUG_LOGGING) console.log(`Expecting car for "${currentSeries.season_name}", week ${schedule.race_week_num + 1}. Checking line: "${line}"`);
+
+    if (!isStructuralOrDetailLine(line) && !line.match(SERIES_NAME_REGEX)) {
+        let carName = line.trim();
+
+        // These keywords often appear after the car name on the same line.
+        // We find the first one and truncate the string there.
+        const structuralKeywords = [
+            'Detached qual', 'Rolling start', 'Fixed Setup', 'Open Setup', 
+            'Local', 'Qualifying', 'Race', 'Warmup', 'Practice', 'Entries', 
+            'Penalty', 'advisory cautions', 'Qual scrutiny', 'Strict'
+        ];
+        
+        const specialTimePattern = /\(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\s+\dx\)/;
+        const timeMatch = carName.match(specialTimePattern);
+        let splitIndex = -1;
+
+        if (timeMatch) {
+            splitIndex = timeMatch.index;
+        }
+        
+        const lowerCarName = carName.toLowerCase();
+        for (const keyword of structuralKeywords) {
+            const index = lowerCarName.indexOf(keyword.toLowerCase());
+            if (index !== -1 && (splitIndex === -1 || index < splitIndex)) {
+                splitIndex = index;
+            }
+        }
+
+        if (splitIndex !== -1) {
+            carName = carName.substring(0, splitIndex);
+        }
+        
+        // Clean up trailing characters that might be left over from the split.
+        carName = carName.trim().replace(/[,-\s]+$/, '');
+
+        if (DEBUG_LOGGING) console.log(`  -> Found car part: "${carName}"`);
+        if (schedule.weekly_cars) {
+            schedule.weekly_cars += ' ' + carName;
+        } else {
+            schedule.weekly_cars = carName;
+        }
+        // This line is a car part. Keep expecting more car parts on subsequent lines.
+        // The expectation will be reset by the next 'Week' or 'Series' line.
+        return true;
+    }
+
+    // If we were expecting a car but found a structural line, reset the expectation.
+    parsingState.expectCarForLastSchedule = false;
+    parsingState.lastScheduleIndexForCar = -1;
+    return false; // Line was not a car, needs further processing
+};
+
+const performPdfParsing = async (pdfFile, debug = false) => {
+    const DEBUG_LOGGING = debug;
     const pdfJsVersion = "3.11.174";
-
-    // --- For Debugging ---
-    // Helper function to download data as a JSON file
-    const downloadJson = (data, filename) => {
-        const jsonStr = JSON.stringify(data, null, 2);
-        const blob = new Blob([jsonStr], { type: "application/json" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-    };
 
     if (typeof window['pdfjs-dist/build/pdf'] === 'undefined') {
         try {
@@ -44,11 +340,18 @@ const performPdfParsing = async (pdfFile) => {
     
     const arrayBuffer = await pdfFile.arrayBuffer();
     const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    
     let seriesData = [];
-    let currentSeries = null;
-    // Flags to manage expecting a car name on the next line for special series
-    let expectCarForLastSchedule = false;
-    let lastScheduleIndexForCar = -1;
+    let allPageItems = [];
+    let currentSeriesRef = { current: null };
+    
+    const parsingState = {
+        expectCarForLastSchedule: false,
+        lastScheduleIndexForCar: -1,
+        lastParsedWeekNum: 0,
+        lastParsedDate: null,
+        previousLine: '',
+    };
 
     const licenseClassMap = { 'Rookie': 1, 'D': 2, 'C': 3, 'B': 4, 'A': 5 };
 
@@ -57,6 +360,10 @@ const performPdfParsing = async (pdfFile) => {
 
         const page = await pdf.getPage(i);
         const content = await page.getTextContent();
+
+        if (DEBUG_LOGGING) {
+            allPageItems.push({ page: i, items: content.items });
+        }
         
         const lines = content.items.reduce((acc, item) => {
             let line = acc.find(l => Math.abs(l.y - item.transform[5]) < 5);
@@ -71,204 +378,69 @@ const performPdfParsing = async (pdfFile) => {
         if (DEBUG_LOGGING) console.log(`Page ${i} lines:`, lines);
 
         for (const line of lines) {
-            const seriesNameRegex = /^(.*?)(\s*-*\s*\d{4}\s+Season\s+\d(?: - Fixed)?)$/i;
-            const seriesMatch = line.match(seriesNameRegex);
-
-            if (seriesMatch && seriesMatch[1]) {
-                 if (currentSeries) {
-                    seriesData.push(currentSeries);
-                }
-                if (DEBUG_LOGGING) console.log(`%cNew series found: "${seriesMatch[1].trim()}"`, 'color: green; font-weight: bold;');
-                let cleanedName = seriesMatch[1].trim().replace(/^\d+\.\s*/, '');
-                if (/\bfixed\b/i.test(line) && !/\bfixed\b/i.test(cleanedName)) {
-                     cleanedName += " - Fixed";
-                }
-
-                currentSeries = {
-                    season_name: cleanedName,
-                    license_group: 0,
-                    schedules: [],
-                    car_types: [],
-                    race_frequency: '' // Initialize race_frequency
-                };
-                expectCarForLastSchedule = false; // Reset for new series
-                lastScheduleIndexForCar = -1;
+            if (handleNewSeriesLine(line, seriesData, currentSeriesRef)) {
+                // Reset parsing state for the new series
+                Object.assign(parsingState, {
+                    expectCarForLastSchedule: false,
+                    lastScheduleIndexForCar: -1,
+                    lastParsedWeekNum: 0,
+                    lastParsedDate: null,
+                });
+                parsingState.previousLine = line;
                 continue;
             }
 
-            if (currentSeries) {
-                // Check if we are expecting a car name for the previously parsed schedule week.
-                // This should be one of the first checks for any line if a series is active.
-                if (expectCarForLastSchedule && lastScheduleIndexForCar !== -1 && currentSeries.schedules[lastScheduleIndexForCar]) {
-                    // A line is a candidate for a car name if it's not a new series header,
-                    // not a structural line (Week, License, Frequency, etc.), and has content.
-                    const isAnotherSeriesName = seriesNameRegex.test(line); // Use the existing seriesNameRegex
-                    const isStructuralLine = /^(Week\s+\d+|Rookie|Class\s+[A-D]|Races\s+(?:every|at)|Min entries|Penalty|See race week)/i.test(line);
-                    if (DEBUG_LOGGING) console.log(`Expecting car for "${currentSeries.season_name}", week ${lastScheduleIndexForCar + 1}. Checking line: "${line}"`);
-                    
-                    if (!isStructuralLine && !isAnotherSeriesName && line.trim().length > 0) {
-                        let fullLineText = line.trim();
-                        let carName = fullLineText; // Default to the full line text
-
-                        // Regex to find the start of session details or large spaces.
-                        // This will split the line, and we'll take the first part as the car name.
-                        // Keywords are case-insensitive. Non-capturing group for delimiters.
-                        const delimiterRegex = /\s{2,}|(?:\s*(?:Detached qual|Rolling start|Fixed Setup|Open Setup|Local|Qualifying|Race|Warmup|Practice|Entries|Penalty)\b[\s,]*)/i;
-                        const parts = fullLineText.split(delimiterRegex);
-
-                        if (parts && parts[0] && parts[0].trim().length > 0) {
-                            carName = parts[0].trim();
-                        }
-
-                        if (DEBUG_LOGGING) console.log(`  -> Found car: "${carName}"`);
-                        currentSeries.schedules[lastScheduleIndexForCar].weekly_cars = carName;
-                        expectCarForLastSchedule = false; 
-                        lastScheduleIndexForCar = -1;
-                        continue; 
-                    } else {
-                        // The current line is not the expected car name (it's structural or empty).
-                        // Assume the car for the previous week was missed or not present directly after.
-                        expectCarForLastSchedule = false; 
-                        lastScheduleIndexForCar = -1;
-                        // Proceed to process the current line normally with the logic below.
-                    }
+            if (currentSeriesRef.current) {
+                if (handleCarForScheduleLine(line, currentSeriesRef.current, parsingState, DEBUG_LOGGING)) {
+                    parsingState.previousLine = line;
+                    continue;
                 }
-
-                if (currentSeries.schedules.length === 0 && !line.startsWith('Week')) { // This block is for series-level info (license, frequency, car_types)
-                    const licenseRegex = /^(Rookie|Class\s+[A-D])\s+\((\d)\.0\)\s+-->/;
-                    const licenseMatch = line.match(licenseRegex);
-
-                    const frequencyRegex = /^(Races\s+(?:every|at).*)$/i;
-                    const frequencyMatch = line.match(frequencyRegex);
-
-                    if (licenseMatch) {
-                        if (DEBUG_LOGGING) console.log(`  Series Info: Found license - "${licenseMatch[1]}"`);
-                        let license = licenseMatch[1];
-                        let srNum = licenseMatch[2];
-                        if (license === 'Rookie' & srNum == '1') currentSeries.license_group = licenseClassMap['Rookie'];
-                        else if (license === 'Rookie') currentSeries.license_group = licenseClassMap['D'];
-                        else if (license === 'Class D') currentSeries.license_group = licenseClassMap['C'];
-                        else if (license === 'Class C') currentSeries.license_group = licenseClassMap['B'];
-                        else if (license === 'Class B') currentSeries.license_group = licenseClassMap['A'];
-                    } else if (frequencyMatch) {
-                        if (DEBUG_LOGGING) console.log(`  Series Info: Found frequency - "${frequencyMatch[0].trim()}"`);
-                        currentSeries.race_frequency = frequencyMatch[0].trim();
-                    } else if (!line.startsWith('Min entries') && !line.startsWith('Penalty') && !line.includes('See race week')) {
-                        const existingCars = currentSeries.car_types[0]?.car_type || '';
-                        currentSeries.car_types = [{car_type: (existingCars + ' ' + line).trim()}];
-                    }
+                if (handleSeriesInfoLine(line, currentSeriesRef.current, licenseClassMap, DEBUG_LOGGING)) {
+                    parsingState.previousLine = line;
+                    continue;
                 }
-                
-                const weekRegex = /^Week\s+(\d+)\s+\((\d{4}-\d{2}-\d{2})\)/;
-                const weekMatch = line.match(weekRegex);
-
-                if (weekMatch) {
-                    if (DEBUG_LOGGING) console.log(`  Week ${weekMatch[1]}: Parsing line "${line}"`);
-                    let remainingLine = line.replace(weekRegex, '').trim();
-                    // weekMatch[1] is the week number (e.g., "12")
-                    // weekMatch[2] is the date string (e.g., "2024-09-03")
-                    const weekNum = parseInt(weekMatch[1], 10) - 1;
-                    const startDateStr = weekMatch[2];
-
-                    // Safety check for invalid week numbers.
-                    // If weekNum is NaN, we push to the array to avoid a crash, but it signals a parsing error.
-                    if (isNaN(weekNum) || weekNum < 0) {
-                        if (DEBUG_LOGGING) console.warn(`  [!] Invalid week number parsed from line: "${line}". Pushing to end of schedule array. weekMatch[1]=${weekMatch[1]}`);
-                        currentSeries.schedules.push({
-                            race_week_num: currentSeries.schedules.length,
-                            track_name: remainingLine, // Use remaining line as track name
-                        });
-                        continue; // Skip to the next line
-                    }
-
-                    const lapsRegex = /(\d+\s+(?:laps|mins))$/i;
-                    let laps = '';
-                    const lapsMatch = remainingLine.match(lapsRegex);
-                    if(lapsMatch) {
-                        laps = lapsMatch[1];
-                        remainingLine = remainingLine.replace(lapsRegex, '').trim();
-                    }
-
-                    const weatherRegex = /([$]?\d+°F[\s\S]+)/;
-                    let weatherText = '';
-                    const weatherMatch = remainingLine.match(weatherRegex);
-                    if(weatherMatch){
-                        weatherText = weatherMatch[1];
-                        remainingLine = remainingLine.replace(weatherRegex, '').trim();
-                    }
-                    
-                    let trackName = ''; // Initialize
-                    let weeklyCars = null;
-
-                    if (currentSeries.season_name.includes("Draft Master") || currentSeries.season_name.includes("Ring Meister")) {
-                        if (currentSeries.season_name.includes("Ring Meister")) {
-                            // Ring Meister: Car is often in parentheses, or the line IS the car. Track is usually Nürburgring.
-                            trackName = remainingLine.trim() || "Nürburgring Combined"; // Default if line is empty
-                            weeklyCars = null; // Expect on next line
-                            expectCarForLastSchedule = true;
-                        } else if (currentSeries.season_name.includes("Draft Master")) {
-                            // Draft Master: Try to parse "Track - Car". If not found, track is remainingLine, car on next.
-                            const parts = remainingLine.split(/\s+-\s+/); // Split by " - "
-                            if (parts.length >= 2) {
-                                trackName = parts.slice(0, -1).join(' - ').trim(); // Join all but last for track
-                                weeklyCars = parts.pop().trim(); // Last part is car
-                                expectCarForLastSchedule = false; // Car found on this line
-                            } else {
-                                trackName = remainingLine.trim(); // Assume whole line is track
-                                weeklyCars = null; // Expect on next line
-                                expectCarForLastSchedule = true;
-                            }
-                        }
-                    } else {
-                        trackName = remainingLine.split(' (')[0].trim(); // Original logic for other series
-                        // For regular series, if car is in parentheses on the same line
-                        const carInParenRegex = /\(([^)]+)\)$/;
-                        const carMatch = remainingLine.match(carInParenRegex);
-                        if (carMatch && carMatch[1]) {
-                            // This might be too greedy or conflict if track names have parentheses.
-                            // For now, we assume this is for non-special series where car might be appended.
-                            // weeklyCars = carMatch[1].trim(); // Potentially re-enable if needed for other series
-                        }
-                        expectCarForLastSchedule = false;
-                    }
-                    const rainRegex = /Rain chance (\d+)%/;
-                    const rainMatch = weatherText.match(rainRegex);
-
-                    currentSeries.schedules.push({
-                        race_week_num: weekNum,
-                        start_date: startDateStr, // Correctly use the date string
-                        track: { track_name: trackName || 'N/A' },
-                        weekly_cars: weeklyCars,
-                        rain_chance: rainMatch ? parseInt(rainMatch[1], 10) : 0,
-                        laps: laps
-                    });
-                    if (expectCarForLastSchedule) {
-                        lastScheduleIndexForCar = currentSeries.schedules.length - 1;
-                    }
+                if (handleScheduleLine(line, seriesData, currentSeriesRef, parsingState, DEBUG_LOGGING)) {
+                    parsingState.previousLine = line;
+                    continue;
                 }
             }
+            parsingState.previousLine = line;
         }
     }
-    if (currentSeries) seriesData.push(currentSeries);
+
+    if (currentSeriesRef.current) {
+        seriesData.push(currentSeriesRef.current);
+    }
     
     if (DEBUG_LOGGING) {
         console.log('%c--- PDF Parsing Complete ---', 'color: blue; font-weight: bold;');
         console.log('Final seriesData:', seriesData);
-        // To download the result as a file for inspection, uncomment the following line:
-        downloadJson(seriesData, 'parsed-schedule.json');
     }
 
-    return seriesData.filter(s => s.schedules.length > 0); // Keep series with schedules, but don't filter by length
+    const finalSeriesData = seriesData.filter(s => s.schedules.length > 0);
+
+    return {
+        seriesData: finalSeriesData,
+        rawPdfJsOutput: allPageItems
+    };
 };
 
 /**
  * A custom hook to encapsulate the logic for parsing iRacing PDF schedule files.
  * It handles loading the pdf.js library from a CDN and provides a parsing function.
- * @returns {{parsePdf: function}} - An object containing the `parsePdf` function.
+ * @returns {{parsePdf: function(File, {debug: boolean}): Promise<Array>}} - An object containing the `parsePdf` function.
  */
 export const usePdfParser = () => {
-    const parsePdf = useCallback(async (pdfFile) => {
-        return await performPdfParsing(pdfFile);
+    const parsePdf = useCallback(async (pdfFile, options = {}) => {
+        const { debug = false } = options; // Revert to default false, now controlled by App.jsx
+        const { seriesData, rawPdfJsOutput } = await performPdfParsing(pdfFile, debug);
+
+        if (debug) {
+            downloadJson(seriesData, 'parsed-schedule.json');
+            downloadJson(rawPdfJsOutput, 'pdfjs-raw-output.json');
+        }
+
+        return seriesData;
     }, []);
 
     return { parsePdf };
