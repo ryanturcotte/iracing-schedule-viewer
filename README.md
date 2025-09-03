@@ -29,7 +29,7 @@ The Excel template also includes conditional cell formatting for Wet weeks, (cel
 1. The logic for extracting the series from the PDF isn't perfect but it's better as of 2025-09-03. Multi-season long series break the web formatting but not the CSV formatting.
 2. The "features" when loading a PDF vs. a JSON are not the same, for example rain % only shows on PDF.
 3. Ring Meister from a PDF shows the cars although text is not perfect or minimized. The pop-up/tooltip is not showing the cars however.
-4. Resetting the page and then reloading doesn't create a completely clean slate. Removing website cookies will.
+4. Resetting the page and and then selecting a series instantly creates a table of 1 series. Not intended behavior. When starting from a clean slate, the intended behavior of only showing the calendar when pressing the button works. Clearing cookies will fix this.
 
 ## Background and AI Usage
 
