@@ -2,7 +2,25 @@ import { useCallback } from 'react';
 
 // The original parsePdfData function, now encapsulated within this module.
 const performPdfParsing = async (pdfFile) => {
-    const pdfJsVersion = "3.11.174"; 
+    // --- Control Flag for Debugging ---
+    // Set to true to enable detailed console logs and the JSON download option.
+    const DEBUG_LOGGING = true;
+
+    const pdfJsVersion = "3.11.174";
+
+    // --- For Debugging ---
+    // Helper function to download data as a JSON file
+    const downloadJson = (data, filename) => {
+        const jsonStr = JSON.stringify(data, null, 2);
+        const blob = new Blob([jsonStr], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+    };
 
     if (typeof window['pdfjs-dist/build/pdf'] === 'undefined') {
         try {
@@ -35,6 +53,8 @@ const performPdfParsing = async (pdfFile) => {
     const licenseClassMap = { 'Rookie': 1, 'D': 2, 'C': 3, 'B': 4, 'A': 5 };
 
     for (let i = 1; i <= pdf.numPages; i++) {
+        if (DEBUG_LOGGING) console.log(`--- Parsing Page ${i} ---`);
+
         const page = await pdf.getPage(i);
         const content = await page.getTextContent();
         
@@ -48,6 +68,8 @@ const performPdfParsing = async (pdfFile) => {
             return acc;
         }, []).sort((a, b) => b.y - a.y).map(l => l.text.trim());
 
+        if (DEBUG_LOGGING) console.log(`Page ${i} lines:`, lines);
+
         for (const line of lines) {
             const seriesNameRegex = /^(.*?)(\s*-*\s*\d{4}\s+Season\s+\d(?: - Fixed)?)$/i;
             const seriesMatch = line.match(seriesNameRegex);
@@ -56,6 +78,7 @@ const performPdfParsing = async (pdfFile) => {
                  if (currentSeries) {
                     seriesData.push(currentSeries);
                 }
+                if (DEBUG_LOGGING) console.log(`%cNew series found: "${seriesMatch[1].trim()}"`, 'color: green; font-weight: bold;');
                 let cleanedName = seriesMatch[1].trim().replace(/^\d+\.\s*/, '');
                 if (/\bfixed\b/i.test(line) && !/\bfixed\b/i.test(cleanedName)) {
                      cleanedName += " - Fixed";
@@ -81,6 +104,7 @@ const performPdfParsing = async (pdfFile) => {
                     // not a structural line (Week, License, Frequency, etc.), and has content.
                     const isAnotherSeriesName = seriesNameRegex.test(line); // Use the existing seriesNameRegex
                     const isStructuralLine = /^(Week\s+\d+|Rookie|Class\s+[A-D]|Races\s+(?:every|at)|Min entries|Penalty|See race week)/i.test(line);
+                    if (DEBUG_LOGGING) console.log(`Expecting car for "${currentSeries.season_name}", week ${lastScheduleIndexForCar + 1}. Checking line: "${line}"`);
                     
                     if (!isStructuralLine && !isAnotherSeriesName && line.trim().length > 0) {
                         let fullLineText = line.trim();
@@ -96,6 +120,7 @@ const performPdfParsing = async (pdfFile) => {
                             carName = parts[0].trim();
                         }
 
+                        if (DEBUG_LOGGING) console.log(`  -> Found car: "${carName}"`);
                         currentSeries.schedules[lastScheduleIndexForCar].weekly_cars = carName;
                         expectCarForLastSchedule = false; 
                         lastScheduleIndexForCar = -1;
@@ -117,6 +142,7 @@ const performPdfParsing = async (pdfFile) => {
                     const frequencyMatch = line.match(frequencyRegex);
 
                     if (licenseMatch) {
+                        if (DEBUG_LOGGING) console.log(`  Series Info: Found license - "${licenseMatch[1]}"`);
                         let license = licenseMatch[1];
                         let srNum = licenseMatch[2];
                         if (license === 'Rookie' & srNum == '1') currentSeries.license_group = licenseClassMap['Rookie'];
@@ -125,6 +151,7 @@ const performPdfParsing = async (pdfFile) => {
                         else if (license === 'Class C') currentSeries.license_group = licenseClassMap['B'];
                         else if (license === 'Class B') currentSeries.license_group = licenseClassMap['A'];
                     } else if (frequencyMatch) {
+                        if (DEBUG_LOGGING) console.log(`  Series Info: Found frequency - "${frequencyMatch[0].trim()}"`);
                         currentSeries.race_frequency = frequencyMatch[0].trim();
                     } else if (!line.startsWith('Min entries') && !line.startsWith('Penalty') && !line.includes('See race week')) {
                         const existingCars = currentSeries.car_types[0]?.car_type || '';
@@ -136,9 +163,23 @@ const performPdfParsing = async (pdfFile) => {
                 const weekMatch = line.match(weekRegex);
 
                 if (weekMatch) {
+                    if (DEBUG_LOGGING) console.log(`  Week ${weekMatch[1]}: Parsing line "${line}"`);
                     let remainingLine = line.replace(weekRegex, '').trim();
+                    // weekMatch[1] is the week number (e.g., "12")
+                    // weekMatch[2] is the date string (e.g., "2024-09-03")
                     const weekNum = parseInt(weekMatch[1], 10) - 1;
                     const startDateStr = weekMatch[2];
+
+                    // Safety check for invalid week numbers.
+                    // If weekNum is NaN, we push to the array to avoid a crash, but it signals a parsing error.
+                    if (isNaN(weekNum) || weekNum < 0) {
+                        if (DEBUG_LOGGING) console.warn(`  [!] Invalid week number parsed from line: "${line}". Pushing to end of schedule array. weekMatch[1]=${weekMatch[1]}`);
+                        currentSeries.schedules.push({
+                            race_week_num: currentSeries.schedules.length,
+                            track_name: remainingLine, // Use remaining line as track name
+                        });
+                        continue; // Skip to the next line
+                    }
 
                     const lapsRegex = /(\d+\s+(?:laps|mins))$/i;
                     let laps = '';
@@ -195,7 +236,7 @@ const performPdfParsing = async (pdfFile) => {
 
                     currentSeries.schedules.push({
                         race_week_num: weekNum,
-                        start_date: startDateStr,
+                        start_date: startDateStr, // Correctly use the date string
                         track: { track_name: trackName || 'N/A' },
                         weekly_cars: weeklyCars,
                         rain_chance: rainMatch ? parseInt(rainMatch[1], 10) : 0,
@@ -210,6 +251,13 @@ const performPdfParsing = async (pdfFile) => {
     }
     if (currentSeries) seriesData.push(currentSeries);
     
+    if (DEBUG_LOGGING) {
+        console.log('%c--- PDF Parsing Complete ---', 'color: blue; font-weight: bold;');
+        console.log('Final seriesData:', seriesData);
+        // To download the result as a file for inspection, uncomment the following line:
+        downloadJson(seriesData, 'parsed-schedule.json');
+    }
+
     return seriesData.filter(s => s.schedules.length > 0); // Keep series with schedules, but don't filter by length
 };
 
