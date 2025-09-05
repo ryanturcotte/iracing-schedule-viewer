@@ -133,6 +133,7 @@ const App = () => {
     const [isMinimizerActive, setIsMinimizerActive] = useState(() => getCookie('isMinimizerActive') || false);
     const [includeYearLongSeries, setIncludeYearLongSeries] = useState(() => getCookie('includeYearLongSeries') || false);
     const [isDebugMode, setIsDebugMode] = useState(() => getCookie('isDebugMode') ?? false);
+    const [filterByRain, setFilterByRain] = useState(() => getCookie('filterByRain') ?? false);
     const initialLoadPerformed = useRef(false);
     const initialTableGenerationAttempted = useRef(false);
     
@@ -185,7 +186,8 @@ const App = () => {
         setCookie('isMinimizerActive', isMinimizerActive, 90);
         setCookie('includeYearLongSeries', includeYearLongSeries, 90);
         setCookie('isDarkMode', isDarkMode, 90);
-    }, [selectedSeriesIds, selectedLicenseLevels, selectedTrackTypes, selectedDataSource, isMinimizerActive, includeYearLongSeries, isDarkMode]);
+        setCookie('filterByRain', filterByRain, 90);
+    }, [selectedSeriesIds, selectedLicenseLevels, selectedTrackTypes, selectedDataSource, isMinimizerActive, includeYearLongSeries, isDarkMode, filterByRain]);
 
     useEffect(() => {
         const fetchScheduleManifest = async () => {
@@ -259,7 +261,19 @@ const App = () => {
         const processedData = data.map(season => {
             // iRacing weeks are based on UTC. Append 'Z' to treat date strings as UTC.
             // This prevents the user's local timezone from shifting the date.
-            const schedulesWithDates = season.schedules?.map(s => ({...s, startDateObj: new Date(s.start_date + 'T00:00:00Z')})) || [];
+            const schedulesWithDates = season.schedules?.map(s => {
+                const schedule = { ...s, startDateObj: new Date(s.start_date + 'T00:00:00Z') };
+
+                // Hoist weather data from the nested weather_summary object for easier access.
+                const weatherSummary = schedule.weather?.weather_summary;
+                if (weatherSummary) {
+                    schedule.rain_chance = weatherSummary.precip_chance;
+                    schedule.max_precip_rate = weatherSummary.max_precip_rate;
+                    schedule.max_precip_rate_desc = weatherSummary.max_precip_rate_desc;
+                }
+
+                return schedule;
+            }) || [];
             let isSameTrackEveryWeek = false;
             if (schedulesWithDates.length > 0) {
                 const firstTrackName = schedulesWithDates[0].track?.track_name;
@@ -385,11 +399,14 @@ const App = () => {
             const seasonTrackTypesList = season.track_types?.map(tt => tt.track_type).filter(Boolean) || [];
             const matchesTrackType = selectedTrackTypes.size === 0 || (seasonTrackTypesList.length > 0 && seasonTrackTypesList.some(stt => selectedTrackTypes.has(stt)));
 
+            const seriesKey = season.series_id || season.season_name;
+            const matchesRain = !filterByRain || seriesHasRainMap.get(seriesKey);
+
             const searchHaystack = `${season.series_name || ''} ${season.season_name || ''}`.toLowerCase();
             const matchesSearch = !searchTerm || searchHaystack.includes(searchTerm.toLowerCase());
-            return matchesLevel && matchesSearch && matchesTrackType;
+            return matchesLevel && matchesSearch && matchesTrackType && matchesRain;
         });
-    }, [seasonsData, selectedLicenseLevels, searchTerm, selectedTrackTypes, includeYearLongSeries]);
+    }, [seasonsData, selectedLicenseLevels, searchTerm, selectedTrackTypes, includeYearLongSeries, filterByRain, seriesHasRainMap]);
 
     const handleSelectAllChange = useCallback(() => {
         if (allSeriesSelected) {
@@ -417,6 +434,7 @@ const App = () => {
         setSearchTerm('');
         setIsMinimizerActive(false);
         setIncludeYearLongSeries(false);
+        setFilterByRain(false);
         setIsDarkMode(true); // Reset to default dark mode
         setShowCalendarTable(false);
         setTableSeriesData([]);
@@ -432,6 +450,7 @@ const App = () => {
         setCookie('isMinimizerActive', false, -1);
         setCookie('includeYearLongSeries', false, -1);
         setCookie('isDarkMode', true, -1);
+        setCookie('filterByRain', false, -1);
     }, []);
 
     const getTracksForSingleSeries = useCallback((series, minimizerActive, replacerFunc) => {
@@ -947,8 +966,8 @@ const App = () => {
                                 {/* Filter Series Section */}
                                 <div className={`p-6 shadow-inner ${isDarkMode ? 'bg-neutral-800' : 'bg-blue-50'}`}>
                                     <h2 className={`text-2xl font-semibold mb-4 ${isDarkMode ? 'text-neutral-200' : 'text-blue-600'}`}>Filter Series</h2>
-                                    <div className="flex flex-col md:flex-row md:gap-6"> {/* New wrapper for side-by-side layout */}
-                                        {/* License Level Filter Section */}
+                                    <div className="flex flex-col md:flex-row md:gap-6 md:flex-wrap"> {/* Wrapper for side-by-side layout */}
+                                         {/* License Level Filter Section */}
                                         <div className="flex-1 mb-6 md:mb-0">
                                             <h3 className={`text-lg font-medium mb-3 ${isDarkMode ? 'text-neutral-300' : 'text-gray-700'}`}>By License Level:</h3>
                                             <div className="flex flex-col items-start gap-2">
@@ -965,7 +984,7 @@ const App = () => {
                                         {/* Track Type Filter Section */}
                                         {availableTrackTypes.length > 0 && (
                                             <div className="flex-1 mb-6 md:mb-0">
-                                                <h3 className={`text-lg font-medium mb-3 ${isDarkMode ? 'text-neutral-300' : 'text-gray-700'}`}>By Track Type:</h3>
+                                                <h3 className={`text-lg font-medium mb-3 ${isDarkMode ? 'text-neutral-300' : 'text-gray-700'}`}>By License Type:</h3>
                                                 <div className="flex flex-col items-start gap-2">
                                                     {availableTrackTypes.map((type) => (
                                                         <label key={type} className={`flex items-center space-x-2 cursor-pointer px-4 py-2 rounded-full shadow-xs transition-all text-sm ${
@@ -980,6 +999,21 @@ const App = () => {
                                                 </div>
                                             </div>
                                         )}
+
+                                        {/* Rain Filter Section */}
+                                        <div className="flex-1 mb-6 md:mb-0">
+                                            <h3 className={`text-lg font-medium mb-3 ${isDarkMode ? 'text-neutral-300' : 'text-gray-700'}`}>By Weather:</h3>
+                                            <div className="flex flex-col items-start gap-2">
+                                                <label className={`flex items-center space-x-2 cursor-pointer px-4 py-2 rounded-full shadow-xs transition-all text-sm ${
+                                                    filterByRain
+                                                        ? (isDarkMode ? 'bg-blue-600 text-white ring-2 ring-offset-2 ring-offset-transparent ring-white' : 'bg-blue-500 text-white ring-2 ring-offset-2 ring-offset-transparent ring-white')
+                                                        : (isDarkMode ? 'bg-neutral-600 text-neutral-200 opacity-80 hover:opacity-100' : 'bg-gray-300 text-gray-800 opacity-80 hover:opacity-100')
+                                                }`}>
+                                                    <input type="checkbox" checked={filterByRain} onChange={() => setFilterByRain(prev => !prev)} className="form-checkbox h-5 w-5" />
+                                                    <span>Has Rain</span>
+                                                </label>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
 
