@@ -3,111 +3,13 @@ import { CSSTransition, TransitionGroup } from 'react-transition-group';
 import { trackNameReplacements, trackConfigReplacements, carConfigReplacements, timeReplacements } from './replacementMappings';
 import { usePdfParser } from './hooks/usePdfParser';
 import { useFileLoader } from './hooks/useFileLoader';
-
-// Helper function to format track type strings
-const formatTrackType = (type) => {
-    if (!type || typeof type !== 'string') return '';
-    return type
-        .split('_')
-        .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-        .join(' ');
-};
-
-// Cookie helper functions
-const setCookie = (name, value, days) => {
-    let expires = "";
-    if (days) {
-        const date = new Date();
-        date.setTime(date.getTime() + (days * 24 * 60 * 60 * 1000));
-        expires = "; expires=" + date.toUTCString();
-    }
-    // Convert Set to Array before stringifying
-    const valueToStore = value instanceof Set ? Array.from(value) : value;
-    document.cookie = name + "=" + (JSON.stringify(valueToStore) || "") + expires + "; path=/";
-};
-
-const getCookie = (name) => {
-    const nameEQ = name + "=";
-    const ca = document.cookie.split(';');
-    for (let i = 0; i < ca.length; i++) {
-        let c = ca[i];
-        while (c.charAt(0) === ' ') c = c.substring(1, c.length);
-        if (c.indexOf(nameEQ) === 0) {
-            const value = c.substring(nameEQ.length, c.length);
-            try {
-                return JSON.parse(value);
-            } catch (e) {
-                console.error(`Error parsing cookie ${name}:`, e);
-                return null;
-            }
-        }
-    }
-    return null;
-};
-// Component to display unique tracks from selected series
-const TracksDisplayTable = ({ selectedSeriesData, isDarkMode, applyReplacements, isMinimizerActive }) => {
-    const uniqueTracks = useMemo(() => {
-        if (!selectedSeriesData || selectedSeriesData.length === 0) return [];
-        const tracksSet = new Set();
-
-        selectedSeriesData.forEach(series => {
-            series.schedules?.forEach(schedule => {
-                let trackPart = '';
-                let configPart = '';
-
-                // Extract track and config (similar to CalendarTable logic)
-                if (schedule.track && typeof schedule.track === 'object' && schedule.track.track_name) {
-                    trackPart = schedule.track.track_name;
-                    configPart = schedule.track.config_name || '';
-                } else if (schedule.track_name) { // PDF-like data
-                    const separator = " - ";
-                    const separatorIndex = schedule.track_name.lastIndexOf(separator);
-                    if (separatorIndex !== -1) {
-                        trackPart = schedule.track_name.substring(0, separatorIndex);
-                        configPart = schedule.track_name.substring(separatorIndex + separator.length);
-                    } else {
-                        trackPart = schedule.track_name;
-                    }
-                }
-
-                // Apply minimizer if active
-                if (isMinimizerActive) {
-                    trackPart = applyReplacements(trackPart, trackNameReplacements);
-                    configPart = applyReplacements(configPart, trackConfigReplacements);
-                }
-
-                let trackDisplay = trackPart.trim();
-                const configDisplay = configPart.trim();
-
-                if (configDisplay && configDisplay.toLowerCase() !== 'oval' && configDisplay.toLowerCase() !== 'n/a' && configDisplay !== '') {
-                    trackDisplay += ` - ${configDisplay}`;
-                }
-                
-                if (trackDisplay) {
-                    tracksSet.add(trackDisplay);
-                }
-            });
-        });
-        return Array.from(tracksSet).sort((a, b) => a.localeCompare(b));
-    }, [selectedSeriesData, isMinimizerActive, applyReplacements]);
-
-    if (uniqueTracks.length === 0) {
-        return <p className={`text-sm ${isDarkMode ? 'text-neutral-400' : 'text-gray-600'}`}>No tracks to display for selected series.</p>;
-    }
-
-    return (
-        <div>
-            <h3 className={`text-xl font-semibold mb-3 ${isDarkMode ? 'text-neutral-200' : 'text-gray-700'}`}>Tracks in Selected Series ({uniqueTracks.length})</h3>
-            <div className={`max-h-[60vh] overflow-y-auto border rounded-md p-3 ${isDarkMode ? 'border-neutral-700 bg-neutral-850' : 'border-gray-300 bg-gray-50'}`}>
-                <ul className={`list-disc list-inside space-y-1 ${isDarkMode ? 'text-neutral-300' : 'text-gray-700'}`}>
-                    {uniqueTracks.map((track, index) => (
-                        <li key={index} className="py-0.5">{track}</li>
-                    ))}
-                </ul>
-            </div>
-        </div>
-    );
-};
+import TracksDisplayTable from './components/TracksDisplayTable';
+import CalendarTable from './components/CalendarTable';
+import { setCookie, getCookie } from './utils/cookies';
+import { formatTrackType } from './utils/formatting';
+import { generateCsv as exportToCsv } from './utils/csvExporter';
+import { useAppSettings } from './hooks/useAppSettings';
+import { useSeriesFilters } from './hooks/useSeriesFilters';
 
 // Main App component
 const App = () => {
@@ -117,23 +19,12 @@ const App = () => {
     const [availableFiles, setAvailableFiles] = useState([]); // Initialize as empty, will be populated from manifest
     const [fileDataMap, setFileDataMap] = useState(new Map());
     const [selectedDataSource, setSelectedDataSource] = useState(() => getCookie('selectedDataSource') ?? 'season-series-25s3.json');
-    const [selectedLicenseLevels, setSelectedLicenseLevels] = useState(() => new Set(getCookie('selectedLicenseLevels') || []));
-    const [selectedSeriesIds, setSelectedSeriesIds] = useState(() => new Set(getCookie('selectedSeriesIds') || []));
-    const [selectedTrackTypes, setSelectedTrackTypes] = useState(() => new Set(getCookie('selectedTrackTypes') || []));
     const [tableSeriesData, setTableSeriesData] = useState([]);
     const [showCalendarTable, setShowCalendarTable] = useState(false);    const [showDataSourceSelector, setShowDataSourceSelector] = useState(() => !getCookie('selectedDataSource'));
     const [message, setMessage] = useState('Please select a data source or upload a file.');
     const [isLoading, setIsLoading] = useState(false); // Start false, will be set true during loads
     const [dataLoaded, setDataLoaded] = useState(false);
     const [carIdMap, setCarIdMap] = useState(new Map());
-    const [isDarkMode, setIsDarkMode] = useState(() => getCookie('isDarkMode') ?? true);
-    const [showSearchInput, setShowSearchInput] = useState(false);
-    const [searchTerm, setSearchTerm] = useState('');
-    const [allSeriesSelected, setAllSeriesSelected] = useState(false);
-    const [isMinimizerActive, setIsMinimizerActive] = useState(() => getCookie('isMinimizerActive') || false);
-    const [includeYearLongSeries, setIncludeYearLongSeries] = useState(() => getCookie('includeYearLongSeries') || false);
-    const [isDebugMode, setIsDebugMode] = useState(() => getCookie('isDebugMode') ?? false);
-    const [filterByRain, setFilterByRain] = useState(() => getCookie('filterByRain') ?? false);
     const initialLoadPerformed = useRef(false);
     const initialTableGenerationAttempted = useRef(false);
     
@@ -141,6 +32,16 @@ const App = () => {
     const [hoveredSeriesTracks, setHoveredSeriesTracks] = useState(null); // { seriesId: string, tracks: string[], position: { top: number, left: number } }
     const hoverTimerRef = useRef(null);
     const dataSourceRef = useRef(null);
+    const messageRef = useRef(null);
+    const seriesItemRefs = useRef({});
+    const calendarTableRef = useRef(null);
+
+    const {
+        isDarkMode, setIsDarkMode,
+        isMinimizerActive, setIsMinimizerActive,
+        isDebugMode,
+        resetAppSettings
+    } = useAppSettings();
 
     const licenseLevelMap = { 1: 'Rookie', 2: 'D', 3: 'C', 4: 'B', 5: 'A', 0: 'Unknown' };
     const licenseColorMap = { 'Rookie': 'bg-red-500 text-white', 'D': 'bg-orange-500 text-white', 'C': 'bg-yellow-300 text-gray-800', 'B': 'bg-green-500 text-white', 'A': 'bg-blue-500 text-white', 'Unknown': 'bg-gray-400 text-white' };
@@ -175,6 +76,28 @@ const App = () => {
         });
         return map;
     }, [seasonsData]);
+
+    const {
+        selectedLicenseLevels,
+        selectedSeriesIds,
+        setSelectedSeriesIds,
+        selectedTrackTypes,
+        searchTerm,
+        showSearchInput,
+        filterByRain,
+        setFilterByRain,
+        includeYearLongSeries,
+        setIncludeYearLongSeries,
+        allSeriesSelected,
+        filteredSeries,
+        handleLicenseLevelChange,
+        handleSearchToggle,
+        handleSearchChange,
+        handleSeriesSelectionChange,
+        handleTrackTypeChange,
+        handleSelectAllChange,
+        resetFilters
+    } = useSeriesFilters(seasonsData, seriesHasRainMap);
 
     // Effect to save selections to cookies
     // Save cookies for 90 days, about the length of an iRacing season.
@@ -384,58 +307,9 @@ const App = () => {
         setMessage(`File "${newFileName}" ready. Click 'Load Data' to process.`);
     }, []);
 
-    const filteredSeries = useMemo(() => {
-        if (!seasonsData || !Array.isArray(seasonsData) || seasonsData.length === 0) return [];
-        return seasonsData.filter(season => {
-            if (!season || !season.schedules) return false;
-
-            // Filter for year-long series based on the checkbox
-            const isYearLong = season.schedules.length > 12;
-            if (isYearLong && !includeYearLongSeries) return false;
-
-            if (!season || !season.license_group_human_readable) return false;
-            const matchesLevel = selectedLicenseLevels.size === 0 || selectedLicenseLevels.has(season.license_group_human_readable);
-
-            const seasonTrackTypesList = season.track_types?.map(tt => tt.track_type).filter(Boolean) || [];
-            const matchesTrackType = selectedTrackTypes.size === 0 || (seasonTrackTypesList.length > 0 && seasonTrackTypesList.some(stt => selectedTrackTypes.has(stt)));
-
-            const seriesKey = season.series_id || season.season_name;
-            const matchesRain = !filterByRain || seriesHasRainMap.get(seriesKey);
-
-            const searchHaystack = `${season.series_name || ''} ${season.season_name || ''}`.toLowerCase();
-            const matchesSearch = !searchTerm || searchHaystack.includes(searchTerm.toLowerCase());
-            return matchesLevel && matchesSearch && matchesTrackType && matchesRain;
-        });
-    }, [seasonsData, selectedLicenseLevels, searchTerm, selectedTrackTypes, includeYearLongSeries, filterByRain, seriesHasRainMap]);
-
-    const handleSelectAllChange = useCallback(() => {
-        if (allSeriesSelected) {
-            setSelectedSeriesIds(new Set());
-        } else {
-            const allIds = new Set(filteredSeries.map(s => s.series_id || s.season_name));
-            setSelectedSeriesIds(allIds);
-        }
-    }, [allSeriesSelected, filteredSeries]);
-
-    useEffect(() => {
-        setAllSeriesSelected(filteredSeries.length > 0 && selectedSeriesIds.size === filteredSeries.length);
-    }, [selectedSeriesIds, filteredSeries]);
-
-    const handleLicenseLevelChange = useCallback((level) => { setSelectedLicenseLevels(prev => { const newSet = new Set(prev); if (newSet.has(level)) newSet.delete(level); else newSet.add(level); return newSet; }); }, []);
-    const handleSearchToggle = useCallback(() => { setShowSearchInput(prev => !prev); setSearchTerm(''); }, []);
-    const handleSearchChange = useCallback((event) => { setSearchTerm(event.target.value); }, []);
-    const handleSeriesSelectionChange = useCallback((seriesId) => { setSelectedSeriesIds(prev => { const newSet = new Set(prev); if (newSet.has(seriesId)) newSet.delete(seriesId); else newSet.add(seriesId); return newSet; }); }, []);
-    const handleTrackTypeChange = useCallback((type) => { setSelectedTrackTypes(prev => { const newSet = new Set(prev); if (newSet.has(type)) newSet.delete(type); else newSet.add(type); return newSet; }); }, []);
-
     const handleReset = useCallback(() => {
-        setSelectedSeriesIds(new Set());
-        setSelectedLicenseLevels(new Set());
-        setSelectedTrackTypes(new Set());
-        setSearchTerm('');
-        setIsMinimizerActive(false);
-        setIncludeYearLongSeries(false);
-        setFilterByRain(false);
-        setIsDarkMode(true); // Reset to default dark mode
+        resetFilters();
+        resetAppSettings();
         setShowCalendarTable(false);
         setTableSeriesData([]);
         setMessage('Selections and filters have been reset.');
@@ -451,7 +325,7 @@ const App = () => {
         setCookie('includeYearLongSeries', false, -1);
         setCookie('isDarkMode', true, -1);
         setCookie('filterByRain', false, -1);
-    }, []);
+    }, [resetFilters, resetAppSettings]);
 
     const getTracksForSingleSeries = useCallback((series, minimizerActive, replacerFunc) => {
         if (!series || !series.schedules) return [];
@@ -523,9 +397,6 @@ const App = () => {
     }, [seasonsData, isMinimizerActive, applyReplacements, getTracksForSingleSeries]);
 
     const handleSeriesMouseLeave = useCallback(() => { clearTimeout(hoverTimerRef.current); setHoveredSeriesTracks(null); }, []);
-    const messageRef = useRef(null);
-    const seriesItemRefs = useRef({});
-    const calendarTableRef = useRef(null);
 
     const getCarsForWeek = useCallback((season, schedule) => {
         if (!schedule) return 'N/A';
@@ -539,248 +410,15 @@ const App = () => {
         return Array.from(carNames).join(', ');
     }, [carIdMap]);
 
-    const generateCsv = useCallback(() => {
-        // Correctly identify selected series using series_id if available, then season_name
-        const selected = seasonsData.filter(season => selectedSeriesIds.has(season.series_id || season.season_name));
-        if (selected.length === 0) {
-            setMessage('Please select at least one series to generate CSV.');
-            return;
-        }
-
-        const escapeCsv = (str) => `"${String(str || '').replace(/"/g, '""')}"`;
-        
-        let csvRows = [];
-        const headerRow = ['RowType', ...selected.map(s => s.season_name)];
-        csvRows.push(headerRow.map(escapeCsv).join(','));
-
-        const dataRows = {
-            Time: ['Time'], License: ['License'], Style: ['Style'], Name: ['Name']
-        };
-        for(let i=1; i<=12; i++) {
-            dataRows[`Track${i}`] = [`Track${i}`];
-        }
-
-        selected.forEach(series => {
-            const frequencyText = series.race_frequency ? applyReplacements(series.race_frequency, timeReplacements) : 'N/A';
-            dataRows.Time.push(frequencyText);
-            dataRows.License.push(series.license_group_human_readable || 'N/A');
-            // Handle multiple track types for CSV, join formatted names
-            const seriesStyles = series.track_types?.map(tt => formatTrackType(tt.track_type)).filter(Boolean).join(' / ') || 'N/A';
-            dataRows.Style.push(seriesStyles);
-            dataRows.Name.push(series.season_name);
-
-            for (let i = 0; i < 12; i++) {
-                const schedule = series.schedules.find(s => s.race_week_num === i);
-                let cellData = '';
-
-                if (schedule) {
-                    let trackPart = '';
-                    let configPart = '';
-                    let weeklyCarsPart = ''; // For Draft Master/Ring Meister
-
-                    // 1. Extract parts based on data structure
-                    if (schedule.track && typeof schedule.track === 'object' && schedule.track.track_name) { // JSON data
-                        trackPart = schedule.track.track_name;
-                        configPart = schedule.track.config_name || '';
-                    } else if (schedule.track_name) { // PDF-like data (track_name is a string "Track - Config")
-                        const separator = " - ";
-                        const separatorIndex = schedule.track_name.lastIndexOf(separator);
-                        if (separatorIndex !== -1) {
-                            trackPart = schedule.track_name.substring(0, separatorIndex);
-                            configPart = schedule.track_name.substring(separatorIndex + separator.length);
-                        } else {
-                            trackPart = schedule.track_name; // Assume whole string is track if no separator
-                        }
-                    }
-
-                    const isSpecialSeries = series.season_name.includes("Draft Master") || series.season_name.includes("Ring Meister");
-                    if (isSpecialSeries && schedule.weekly_cars) {
-                        weeklyCarsPart = schedule.weekly_cars; // This will be handled by carConfigReplacements later
-                    }
-
-                    const rainChance = schedule.rain_chance || schedule.track?.rain_chance || 0;
-                    // 2. Apply minimizer if active (for track and track config)
-                    if (isMinimizerActive) {
-                        trackPart = applyReplacements(trackPart, trackNameReplacements);
-                        configPart = applyReplacements(configPart, trackConfigReplacements);
-                        // weeklyCarsPart will be minimized specifically for Draft Master/Ring Meister below
-                    }
-
-                    // 3. Construct cellData
-                    if (isSpecialSeries) {
-                        const minimizedCars = applyCarListReplacements(weeklyCarsPart, carConfigReplacements);
-                        if (series.season_name.includes("Draft Master")) {
-                            let displayTrack = trackPart;
-                            if (configPart && configPart.toLowerCase() !== 'oval' && configPart.toLowerCase() !== 'n/a' && configPart.trim() !== '') {
-                                displayTrack += ` - ${configPart}`;
-                            }
-                            cellData = `${displayTrack} - ${minimizedCars}`;
-                        } else if (series.season_name.includes("Ring Meister")) {
-                            cellData = minimizedCars;
-                        }
-                    } else {
-                        cellData = trackPart;
-                        if (configPart && configPart.toLowerCase() !== 'oval' && configPart.toLowerCase() !== 'n/a' && configPart.trim() !== '') {
-                            cellData += ` - ${configPart}`;
-                        }
-                    }
-
-                    if (rainChance > 0) {
-                        cellData += ` (${rainChance}%)`;
-                    }
-                }
-                dataRows[`Track${i+1}`].push(cellData);
-            }
+    const handleGenerateCsv = useCallback(() => {
+        const result = exportToCsv({
+            seasonsData,
+            selectedSeriesIds,
+            isMinimizerActive,
         });
-        
-        const csvContent = Object.values(dataRows).map(row => row.map(escapeCsv).join(',')).join('\n');
-        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-        const link = document.createElement('a');
-        const url = URL.createObjectURL(blob);
-        link.setAttribute('href', url);
-        link.setAttribute('download', 'iracing_schedule_pivoted.csv');
-        link.style.visibility = 'hidden';
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        setMessage('CSV generated successfully!');
+        setMessage(result.message);
+    }, [seasonsData, selectedSeriesIds, isMinimizerActive]);
 
-    }, [seasonsData, selectedSeriesIds, getCarsForWeek, isMinimizerActive, applyReplacements, applyCarListReplacements]);
-
-    const CalendarTable = React.forwardRef(({ seriesData, isDarkMode, getCarsForWeek, applyReplacements, isMinimizerActive, timeReplacements: localTimeReplacements }, ref) => {
-        if (!seriesData || seriesData.length === 0) return null;        
-        
-        const allSchedules = seriesData.flatMap(s => s.schedules);
-        if (allSchedules.length === 0) return <p>No schedules found for selected series.</p>;
-
-        const dates = allSchedules.map(s => s.startDateObj);
-        const minDate = new Date(Math.min(...dates));
-        const maxDate = new Date(Math.max(...dates));
-
-        // iRacing weeks start on Tuesday 00:00 UTC. The schedule dates are these Tuesdays.
-        // We generate week boundaries from Tuesday (inclusive) to the next Tuesday (exclusive).
-        const calendarWeeks = [];
-        if (!isNaN(minDate.getTime())) {
-            let weekIterator = new Date(minDate.getTime());
-            while(weekIterator <= maxDate) {
-                const weekStart = new Date(weekIterator.getTime());
-                const weekEnd = new Date(weekIterator.getTime());
-                // A week runs for 7 full days.
-                weekEnd.setUTCDate(weekEnd.getUTCDate() + 7);
-
-                calendarWeeks.push({ start: weekStart, end: weekEnd });
-                weekIterator = weekEnd;
-            }
-        }
-
-        const now = new Date(); // The current moment in time (UTC based).
-
-        return (
-            <div ref={ref} className={`mt-8 p-6 shadow-lg border ${isDarkMode ? 'bg-neutral-800 border-neutral-700' : 'bg-white border-gray-200'}`}>
-                <h2 className={`text-2xl font-semibold mb-4 ${isDarkMode ? 'text-neutral-200' : 'text-blue-700'}`}>Generated Calendar Schedule</h2>
-                <div className="overflow-x-auto">
-                    <table className={`min-w-full divide-y ${isDarkMode ? 'border-neutral-700' : 'border-gray-200'}`}>
-                        <thead className={isDarkMode ? 'bg-neutral-900' : 'bg-gray-50'}>
-                            <tr>
-                                <th scope="col" className={`px-6 py-3 text-left text-xs font-medium ${isDarkMode ? 'text-neutral-300' : 'text-gray-500'} uppercase`}>Week</th>
-                                {seriesData.map(season => (
-                                    <th key={season.series_id || season.season_name} scope="col" className={`px-3 py-3 text-left text-xs font-medium ${isDarkMode ? 'text-neutral-300' : 'text-gray-500'} uppercase`}>
-                                        <div className="text-center">{season.season_name}</div> {/* Centered series name */}
-                                        {season.race_frequency && (
-                                            <div className={`text-[0.65rem] leading-tight ${isDarkMode ? 'text-neutral-400' : 'text-gray-400'} font-normal normal-case text-center`}> {/* Centered frequency */}
-                                                {applyReplacements(season.race_frequency, localTimeReplacements)}
-                                            </div>
-                                        )}
-                                    </th>
-                                
-                                ))}
-                            </tr>
-                        </thead>
-                        <tbody className={`${isDarkMode ? 'bg-neutral-800' : 'bg-white'} divide-y ${isDarkMode ? 'divide-neutral-700' : 'divide-gray-200'}`}>
-                            {calendarWeeks.map((week, i) => {
-                                const isCurrentWeek = now >= week.start && now < week.end;
-                                return (
-                                <tr key={i} className={`transition-colors duration-300 ${isCurrentWeek ? (isDarkMode ? 'bg-yellow-900/50' : 'bg-yellow-100') : ''}`}>
-                                    <td className={`px-6 py-4 whitespace-nowrap text-sm font-medium ${isDarkMode ? 'text-neutral-100' : 'text-gray-900'} text-center`}>{i + 1}</td>
-                                    {seriesData.map(season => {
-                                        const schedule = season.schedules?.find(s => s.startDateObj.getTime() === week.start.getTime());
-                                        let cellContentHtml = 'N/A';
-                                        if (schedule) {
-                                            let trackPart = '';
-                                            let configPart = '';
-                                            let weeklyCarsPart = ''; // For Draft/Ring Meister
-
-                                            // 1. Extract parts
-                                            if (schedule.track && typeof schedule.track === 'object' && schedule.track.track_name) { // JSON
-                                                trackPart = schedule.track.track_name;
-                                                configPart = schedule.track.config_name || '';
-                                            } else if (schedule.track_name) { // PDF-like
-                                                const separator = " - ";
-                                                const separatorIndex = schedule.track_name.lastIndexOf(separator);
-                                                if (separatorIndex !== -1) {
-                                                    trackPart = schedule.track_name.substring(0, separatorIndex);
-                                                    configPart = schedule.track_name.substring(separatorIndex + separator.length);
-                                                } else {
-                                                    trackPart = schedule.track_name;
-                                                }
-                                            }
-
-                                            const isSpecialSeries = season.season_name.includes('Draft Master') || season.season_name.includes('Ring Meister');
-                                            if (isSpecialSeries && schedule.weekly_cars) {
-                                                weeklyCarsPart = schedule.weekly_cars; // Will be processed by carConfigReplacements later
-                                            }
-
-                                            // 2. Apply minimizer (for track and track config)
-                                            if (isMinimizerActive) {
-                                                trackPart = applyReplacements(trackPart, trackNameReplacements);
-                                                configPart = applyReplacements(configPart, trackConfigReplacements);
-                                                // weeklyCarsPart for special series will be minimized below
-                                            }
-
-                                            // 3. Construct display parts
-                                            let trackNameForDisplay;
-                                            let subTextForDisplay = '';
-
-                                            if (isSpecialSeries) {
-                                                const minimizedCars = applyCarListReplacements(weeklyCarsPart, carConfigReplacements);
-                                                if (season.season_name.includes("Draft Master")) {
-                                                    trackNameForDisplay = trackPart; // Already minimized if active
-                                                    if (configPart && configPart.toLowerCase() !== 'oval' && configPart.toLowerCase() !== 'n/a' && configPart.trim() !== '') {
-                                                        trackNameForDisplay += ` - ${configPart}`; // Already minimized if active
-                                                    }
-                                                    subTextForDisplay = minimizedCars; // Car type as subtext
-                                                } else if (season.season_name.includes("Ring Meister")) {
-                                                    trackNameForDisplay = minimizedCars; // Only car type
-                                                    // subTextForDisplay remains empty or could be track if desired, but request implies only car type
-                                                }
-                                            } else {
-                                                trackNameForDisplay = trackPart;
-                                                if (configPart && configPart.toLowerCase() !== 'oval' && configPart.toLowerCase() !== 'n/a' && configPart.trim() !== '') {
-                                                    trackNameForDisplay += ` - ${configPart}`;
-                                                }
-                                                subTextForDisplay = schedule.laps ? `${schedule.laps}` : '';
-                                            }
-
-                                            const rainChance = schedule.rain_chance || schedule.track?.rain_chance || 0;
-                                            let trackDisplayHtml = `<span class="font-semibold">${trackNameForDisplay || 'N/A'}</span>`;
-                                            if (rainChance > 0) {
-                                                // Append the rain chance information instead of replacing the track name
-                                                trackDisplayHtml += ` <span class="text-blue-400 font-normal">(${rainChance}%)</span>`;
-                                            }
-                                            cellContentHtml = `<div class="flex flex-col">${trackDisplayHtml}<span class="text-xs ${isDarkMode ? 'text-neutral-400' : 'text-gray-600'}">${subTextForDisplay || ''}</span></div>`;
-                                        }
-                                        return <td key={`${season.series_id || season.season_name}-${i}`} className={`px-3 py-4 whitespace-nowrap text-sm ${isDarkMode ? 'text-neutral-100' : 'text-gray-500'}`} dangerouslySetInnerHTML={{ __html: cellContentHtml }}></td>;
-                                    })}
-                                </tr>
-                                );
-                            })}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        );
-    });
-    
     return (
         <div className={`min-h-screen p-4 font-inter transition-colors duration-300 ${isDarkMode ? 'bg-neutral-950 text-neutral-100' : 'bg-gray-100 text-gray-800'}`}>
             <style>{`::selection { background-color: #3b82f6; color: #ffffff; } .fade-enter { opacity: 0; } .fade-enter-active { opacity: 1; transition: opacity 200ms; } .fade-exit { opacity: 1; } .fade-exit-active { opacity: 0; transition: opacity 200ms; } .table-appear { opacity: 0; transform: translateY(20px); } .table-appear-active { opacity: 1; transform: translateY(0); transition: opacity 300ms, transform 300ms; } `}</style>
@@ -874,7 +512,7 @@ const App = () => {
                 {/* Calendar table is now here at the top */}
                 <TransitionGroup>
                   {showCalendarTable && tableSeriesData.length > 0 && (
-                    <CSSTransition nodeRef={calendarTableRef} key="calendar-table-transition" timeout={500} classNames="table-appear">
+                    <CSSTransition nodeRef={calendarTableRef} key="calendar-table-transition" timeout={500} classNames="table-appear" appear>
                       <CalendarTable ref={calendarTableRef} seriesData={tableSeriesData} isDarkMode={isDarkMode} getCarsForWeek={getCarsForWeek} applyReplacements={applyReplacements} isMinimizerActive={isMinimizerActive} timeReplacements={timeReplacements} />
                     </CSSTransition>
                   )}
@@ -986,7 +624,7 @@ const App = () => {
                                             <div className="flex-1 mb-6 md:mb-0">
                                                 <h3 className={`text-lg font-medium mb-3 ${isDarkMode ? 'text-neutral-300' : 'text-gray-700'}`}>By License Type:</h3>
                                                 <div className="flex flex-col items-start gap-2">
-                                                    {availableTrackTypes.map((type) => (
+                                                {availableTrackTypes.map((type) => (
                                                         <label key={type} className={`flex items-center space-x-2 cursor-pointer px-4 py-2 rounded-full shadow-xs transition-all text-sm ${
                                                             selectedTrackTypes.has(type)
                                                                 ? (isDarkMode ? 'bg-blue-600 text-white ring-2 ring-offset-2 ring-offset-transparent ring-white' : 'bg-blue-500 text-white ring-2 ring-offset-2 ring-offset-transparent ring-white')
@@ -1032,7 +670,7 @@ const App = () => {
                         <div className="flex flex-col sm:flex-row justify-center items-center gap-4 mb-8">
                            <button onClick={generateCalendarTable} className="w-full sm:flex-1 bg-purple-600 text-white font-bold py-3 px-6 rounded-lg shadow-lg hover:bg-purple-700">Generate Schedule</button>
                            <button onClick={handleReset} className="w-full sm:w-auto bg-red-600 text-white font-bold py-3 px-6 rounded-lg shadow-lg hover:bg-red-700 whitespace-nowrap">Reset</button>
-                           <button onClick={generateCsv} className="w-full sm:flex-1 bg-green-600 text-white font-bold py-3 px-6 rounded-lg shadow-lg hover:bg-green-700">Generate CSV</button>
+                           <button onClick={handleGenerateCsv} className="w-full sm:flex-1 bg-green-600 text-white font-bold py-3 px-6 rounded-lg shadow-lg hover:bg-green-700">Generate CSV</button>
                         </div>
                     </>
                  )}
