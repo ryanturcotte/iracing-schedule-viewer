@@ -163,21 +163,47 @@ const App = () => {
     const applyCarListReplacements = useCallback((weeklyCarsString, replacementsList) => {
         if (!weeklyCarsString || typeof weeklyCarsString !== 'string' || !isMinimizerActive) return weeklyCarsString;
 
-        // Split by common delimiters, apply replacements to each part, then rejoin.
-        // This handles "Car A vs Car B" or "Car A / Car B"
+        // --- NEW LOGIC for multi-car rules ---
+        // Create a canonical representation of the input string (sorted, comma-separated).
+        const inputCars = weeklyCarsString
+            .split(/\s*(?:\/|vs|,)\s*/) // split by /, vs, or ,
+            .map(c => c.trim())
+            .filter(Boolean)
+            .sort();
+        const canonicalInput = inputCars.join(', ');
+
+        for (const rule of replacementsList) {
+            // Only consider rules that look like multi-car rules.
+            if (rule.original.includes(',')) {
+                // Create a canonical representation for the rule.
+                const ruleCars = rule.original
+                    .split(',')
+                    .map(c => c.trim())
+                    .filter(Boolean)
+                    .sort();
+                const canonicalRule = ruleCars.join(', ');
+
+                if (canonicalInput === canonicalRule) {
+                    return rule.replacement; // Found a multi-car match
+                }
+            }
+        }
+
+        // If no multi-car rule matched, fall back to replacing individual car names.
         const delimiters = /(\s+vs\s+|\s*\/\s*|\s*,\s*)/i; // Regex to split by "vs", "/", or "," keeping delimiters for rejoining if needed, but we'll use a standard one.
         const parts = weeklyCarsString.split(delimiters);
         const processedParts = [];
 
         for (let i = 0; i < parts.length; i++) {
             if (i % 2 === 0) { // Car name part
-                processedParts.push(applyReplacements(parts[i].trim(), replacementsList));
-            } else { // Delimiter part - we'll standardize to " / "
-                // We are not keeping original delimiters, but standardizing to " / " if multiple cars
+                const carPart = parts[i].trim();
+                if (carPart) {
+                    processedParts.push(applyReplacements(carPart, replacementsList));
+                }
             }
         }
         return processedParts.filter(p => p.trim() !== '').join(' / '); // Join valid processed car names with " / "
-    }, [isMinimizerActive, applyReplacements]); // applyReplacements is already memoized with isMinimizerActive
+    }, [isMinimizerActive, applyReplacements]);
 
     const processAndSetData = useCallback((data) => {
         if (!Array.isArray(data)) { return []; }
@@ -203,9 +229,35 @@ const App = () => {
                 const firstTrackName = schedulesWithDates[0].track?.track_name;
                 isSameTrackEveryWeek = schedulesWithDates.every(s => s.track?.track_name === firstTrackName);
             }
+
+            // Detect series like Ring Meister: same track, but different cars weekly.
+            let isDifferentCarEveryWeek = false;
+            if (schedulesWithDates.length > 1) {
+                const getCarsStringForSchedule = (schedule) => {
+                    // This logic needs to be self-contained as it runs before carIdMap is fully populated.
+                    if (schedule.weekly_cars) return schedule.weekly_cars; // From PDF parser
+                    if (schedule.race_week_cars && schedule.race_week_cars.length > 0) {
+                        // Use car_name if available, otherwise car_id. Sort for consistent comparison.
+                        return schedule.race_week_cars.map(c => c.car_name || `id:${c.car_id}`).sort().join(',');
+                    }
+                    // Fallback to season-level car types if week-specific cars aren't defined.
+                    if (season.car_types && season.car_types.length > 0) {
+                        return season.car_types.map(ct => ct.car_type).sort().join(',');
+                    }
+                    return 'N/A'; // No car data found for this schedule
+                };
+
+                const carSets = schedulesWithDates.map(s => getCarsStringForSchedule(s));
+                const firstCarSet = carSets[0];
+                // If we have car data, check if any week's cars differ from the first week's.
+                if (firstCarSet !== 'N/A') {
+                    isDifferentCarEveryWeek = carSets.some(cs => cs !== firstCarSet);
+                }
+            }
+
             if (newCarIdMap.has(67) && newCarIdMap.get(67) === null) newCarIdMap.set(67, "Mazda MX-5 Cup");
             else if (!newCarIdMap.has(67)) newCarIdMap.set(67, "Mazda MX-5 Cup");
-            return { ...season, schedules: schedulesWithDates, license_group_human_readable: licenseLevelMap[season.license_group] || 'Unknown', isSameTrackEveryWeek };
+            return { ...season, schedules: schedulesWithDates, license_group_human_readable: licenseLevelMap[season.license_group] || 'Unknown', isSameTrackEveryWeek, isDifferentCarEveryWeek };
         });
         setCarIdMap(newCarIdMap);
         return processedData;
@@ -322,82 +374,11 @@ const App = () => {
         setCookie('selectedSeriesIds', [], -1);
         setCookie('selectedLicenseLevels', [], -1);
         setCookie('selectedTrackTypes', [], -1);
-        setCookie('isMinimizerActive', false, -1);
+        setCookie('isMinimizerActive', true, -1);
         setCookie('includeYearLongSeries', false, -1);
         setCookie('isDarkMode', true, -1);
         setCookie('filterByRain', false, -1);
     }, [resetFilters, resetAppSettings]);
-
-    const getTracksForSingleSeries = useCallback((series, minimizerActive, replacerFunc) => {
-        if (!series || !series.schedules) return [];
-        
-        // Create a mutable copy and sort by race_week_num to ensure correct order
-        const sortedSchedules = [...series.schedules].sort((a, b) => a.race_week_num - b.race_week_num);
-        
-        const weeklyTrackEntries = sortedSchedules.map(schedule => {
-            let trackPart = '';
-            let configPart = '';
-
-            // Existing logic to extract trackPart and configPart
-            if (schedule.track && typeof schedule.track === 'object' && schedule.track.track_name) {
-                trackPart = schedule.track.track_name;
-                configPart = schedule.track.config_name || '';
-            } else if (schedule.track_name) { // PDF-like data
-                const separator = " - ";
-                const separatorIndex = schedule.track_name.lastIndexOf(separator);
-                if (separatorIndex !== -1) {
-                    trackPart = schedule.track_name.substring(0, separatorIndex);
-                    configPart = schedule.track_name.substring(separatorIndex + separator.length);
-                } else {
-                    trackPart = schedule.track_name;
-                }
-            }
-
-            if (minimizerActive) {
-                trackPart = replacerFunc(trackPart, trackNameReplacements);
-                configPart = replacerFunc(configPart, trackConfigReplacements);
-            }
-
-            let trackDisplay = trackPart.trim();
-            const configDisplay = configPart.trim();
-
-            if (configDisplay && configDisplay.toLowerCase() !== 'oval' && configDisplay.toLowerCase() !== 'n/a' && configDisplay !== '') {
-                trackDisplay += ` - ${configDisplay}`;
-            }
-
-            const rainChance = schedule.rain_chance || schedule.track?.rain_chance || 0;
-            
-            return {
-                text: `Week ${schedule.race_week_num + 1}: ${trackDisplay || 'N/A'}`,
-                rainChance: rainChance
-            };
-        });
-        return weeklyTrackEntries;
-    }, []); // Assuming trackNameReplacements & trackConfigReplacements are stable or App re-renders if they change
-
-    const handleSeriesMouseEnter = useCallback((event, seriesId) => {
-        clearTimeout(hoverTimerRef.current);
-        const currentTargetRect = event.currentTarget.getBoundingClientRect(); // Get rect immediately
-        // console.log('Mouse enter on series:', seriesId); // Log 1: Check if event fires
-        hoverTimerRef.current = setTimeout(() => {
-            // console.log('Timer fired for series:', seriesId); // Log 2: Check if timer completes
-            const series = seasonsData.find(s => (s.series_id || s.season_name) === seriesId); // seasonsData is from App's state
-            if (series) {
-                // console.log('Found series for tooltip:', series); // Log 3: Check the found series object
-                const tracks = getTracksForSingleSeries(series, isMinimizerActive, applyReplacements); // isMinimizerActive & applyReplacements are from App's state/memoized
-                // console.log('Tracks extracted for tooltip:', tracks); // Log 4: Check the extracted tracks
-                if (tracks.length > 0) {
-                    setHoveredSeriesTracks({ seriesId, tracks, position: { top: currentTargetRect.bottom + window.scrollY, left: currentTargetRect.left + window.scrollX } });
-                } else {
-                    // console.log('No tracks found (tracks.length is 0) for series:', seriesId); // Log 5: If tracks array is empty
-                }
-            } else {
-                // console.log('Series not found in seasonsData for tooltip. ID:', seriesId); // Log 6: If series object is not found
-            }
-        }, 700); // 700ms delay
-    }, [seasonsData, isMinimizerActive, applyReplacements, getTracksForSingleSeries]);
-
-    const handleSeriesMouseLeave = useCallback(() => { clearTimeout(hoverTimerRef.current); setHoveredSeriesTracks(null); }, []);
 
     const getCarsForWeek = useCallback((season, schedule) => {
         if (!schedule) return 'N/A';
@@ -411,14 +392,87 @@ const App = () => {
         return Array.from(carNames).join(', ');
     }, [carIdMap]);
 
+    const getTooltipContentForSeries = useCallback((series) => {
+        if (!series || !series.schedules) return [];
+
+        // Create a mutable copy and sort by race_week_num to ensure correct order
+        const sortedSchedules = [...series.schedules].sort((a, b) => a.race_week_num - b.race_week_num);
+
+        const isRingMeister = series.season_name.includes("Ring Meister");
+        const isTrackPlusCar = series.season_name.includes("Draft Master") || series.season_name.includes("Outlaw Micro Showdown");
+
+        return sortedSchedules.map(schedule => {
+            const weekNum = schedule.race_week_num + 1;
+            const rainChance = schedule.rain_chance || schedule.track?.rain_chance || 0;
+            let text = `Week ${weekNum}: `;
+
+            const getTrackDisplay = (sch) => {
+                let trackPart = '', configPart = '';
+                if (sch.track && typeof sch.track === 'object' && sch.track.track_name) {
+                    trackPart = sch.track.track_name;
+                    configPart = sch.track.config_name || '';
+                } else if (sch.track_name) {
+                    const separator = " - ";
+                    const separatorIndex = sch.track_name.lastIndexOf(separator);
+                    if (separatorIndex !== -1) {
+                        trackPart = sch.track_name.substring(0, separatorIndex);
+                        configPart = sch.track_name.substring(separatorIndex + separator.length);
+                    } else {
+                        trackPart = sch.track_name;
+                    }
+                }
+                let trackDisplay = applyReplacements(trackPart, trackNameReplacements);
+                const minimizedConfig = applyReplacements(configPart, trackConfigReplacements);
+                if (minimizedConfig && minimizedConfig.toLowerCase() !== 'oval' && minimizedConfig.toLowerCase() !== 'n/a' && minimizedConfig.trim() !== '') {
+                    trackDisplay += ` - ${minimizedConfig}`;
+                }
+                return trackDisplay || 'N/A';
+            };
+
+            if (isRingMeister) {
+                const cars = getCarsForWeek(series, schedule);
+                text += applyCarListReplacements(cars, carConfigReplacements) || 'N/A';
+            } else if (isTrackPlusCar) {
+                const trackDisplay = getTrackDisplay(schedule);
+                const cars = getCarsForWeek(series, schedule);
+                text += `${trackDisplay} - ${applyCarListReplacements(cars, carConfigReplacements) || 'N/A'}`;
+            } else {
+                text += getTrackDisplay(schedule);
+            }
+
+            return { text, rainChance };
+        });
+    }, [isMinimizerActive, applyReplacements, applyCarListReplacements, getCarsForWeek]);
+
+    const handleSeriesMouseEnter = useCallback((event, seriesId) => {
+        clearTimeout(hoverTimerRef.current);
+        const currentTargetRect = event.currentTarget.getBoundingClientRect(); // Get rect immediately
+        // console.log('Mouse enter on series:', seriesId); // Log 1: Check if event fires
+        hoverTimerRef.current = setTimeout(() => {
+            // console.log('Timer fired for series:', seriesId); // Log 2: Check if timer completes
+            const series = seasonsData.find(s => (s.series_id || s.season_name) === seriesId); // seasonsData is from App's state
+            if (series) {
+                const content = getTooltipContentForSeries(series);
+                if (content.length > 0) {
+                    setHoveredSeriesTracks({ seriesId, tracks: content, position: { top: currentTargetRect.bottom + window.scrollY, left: currentTargetRect.left + window.scrollX } });
+                }
+            } else {
+                // console.log('Series not found in seasonsData for tooltip. ID:', seriesId); // Log 6: If series object is not found
+            }
+        }, 700); // 700ms delay
+    }, [seasonsData, getTooltipContentForSeries]);
+
+    const handleSeriesMouseLeave = useCallback(() => { clearTimeout(hoverTimerRef.current); setHoveredSeriesTracks(null); }, []);
+
     const handleGenerateCsv = useCallback(() => {
         const result = exportToCsv({
             seasonsData,
             selectedSeriesIds,
             isMinimizerActive,
+            getCarsForWeek,
         });
         setMessage(result.message);
-    }, [seasonsData, selectedSeriesIds, isMinimizerActive]);
+    }, [seasonsData, selectedSeriesIds, isMinimizerActive, getCarsForWeek]);
 
     return (
         <div className={`min-h-screen p-4 font-inter transition-colors duration-300 ${isDarkMode ? 'bg-neutral-950 text-neutral-100' : 'bg-gray-100 text-gray-800'}`}>
@@ -576,6 +630,13 @@ const App = () => {
                                                                 <span className="flex items-center"> {/* Group name and rain icon */}
                                                                     <span>{season.season_name || "Invalid Series Name"}</span>
                                                                     {seriesHasRainMap.get(seriesKey) && <span className="ml-2 text-lg" role="img" aria-label="rain chance">🌧️</span>}
+                                                                    {season.isDifferentCarEveryWeek && (
+                                                                        <span className="ml-2" title="Same track, different car each week">
+                                                                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={`w-5 h-5 ${isDarkMode ? 'text-yellow-300' : 'text-blue-600'}`}>
+                                                                                <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 11.667 0l3.181-3.183m-4.991-2.695v-2.695A8.25 8.25 0 0 0 5.68 9.348v2.695l-2.695 2.695" />
+                                                                            </svg>
+                                                                        </span>
+                                                                    )}
                                                                     {/* Display Track Type(s)/Style(s) */}
                                                                     {season.track_types && season.track_types.length > 0 && (
                                                                         season.track_types.map(tt => tt.track_type).filter(Boolean).map(type => (

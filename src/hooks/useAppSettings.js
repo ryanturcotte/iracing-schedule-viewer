@@ -3,7 +3,7 @@ import { getCookie } from '../utils/cookies';
 
 export const useAppSettings = () => {
     const [isDarkMode, setIsDarkMode] = useState(() => getCookie('isDarkMode') ?? true);
-    const [isMinimizerActive, setIsMinimizerActive] = useState(() => getCookie('isMinimizerActive') || false);
+    const [isMinimizerActive, setIsMinimizerActive] = useState(() => getCookie('isMinimizerActive') || true);
     const [isDebugMode, setIsDebugMode] = useState(() => getCookie('isDebugMode') ?? false);
 
     const resetAppSettings = () => {

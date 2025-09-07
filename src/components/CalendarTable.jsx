@@ -4,30 +4,63 @@ import { trackNameReplacements, trackConfigReplacements, carConfigReplacements }
 const CalendarTable = React.forwardRef(({ seriesData, isDarkMode, getCarsForWeek, applyReplacements, applyCarListReplacements, isMinimizerActive, timeReplacements: localTimeReplacements }, ref) => {
     if (!seriesData || seriesData.length === 0) return null;        
     
+    const now = new Date(); // The current moment in time (UTC based).
+
     const allSchedules = seriesData.flatMap(s => s.schedules);
     if (allSchedules.length === 0) return <p>No schedules found for selected series.</p>;
 
-    const dates = allSchedules.map(s => s.startDateObj);
-    const minDate = new Date(Math.min(...dates));
-    const maxDate = new Date(Math.max(...dates));
+    // Helper to normalize any date to the beginning of its iRacing week (Tuesday 00:00 UTC)
+    const getWeekStartDate = (date) => {
+        if (!date) return null;
+        const d = new Date(date);
+        // getUTCDay() returns 0 for Sunday, 1 for Monday, ..., 6 for Saturday. Tuesday is 2.
+        const dayOfWeek = d.getUTCDay();
+        const daysToSubtract = (dayOfWeek - 2 + 7) % 7;
+        d.setUTCDate(d.getUTCDate() - daysToSubtract);
+        d.setUTCHours(0, 0, 0, 0); // Ensure time is at the beginning of the day
+        return d.getTime();
+    };
 
-    // iRacing weeks start on Tuesday 00:00 UTC. The schedule dates are these Tuesdays.
-    // We generate week boundaries from Tuesday (inclusive) to the next Tuesday (exclusive).
-    const calendarWeeks = [];
-    if (!isNaN(minDate.getTime())) {
-        let weekIterator = new Date(minDate.getTime());
-        while(weekIterator <= maxDate) {
-            const weekStart = new Date(weekIterator.getTime());
-            const weekEnd = new Date(weekIterator.getTime());
-            // A week runs for 7 full days.
-            weekEnd.setUTCDate(weekEnd.getUTCDate() + 7);
+    // To determine the season's start, we should prioritize non-year-long series,
+    // as year-long series can skew the "most common" start date.
+    const regularSeries = seriesData.filter(s => s.schedules.length <= 12);
+    const referenceSeries = regularSeries.length > 0 ? regularSeries : seriesData; // Fallback to all if no regular series are selected
 
-            calendarWeeks.push({ start: weekStart, end: weekEnd });
-            weekIterator = weekEnd;
+    const referenceWeekStartTimes = referenceSeries.flatMap(s => s.schedules).map(s => getWeekStartDate(s.startDateObj)).filter(Boolean);
+
+    // Find the most common start date from the reference series to determine the official season start.
+    const dateCounts = referenceWeekStartTimes.reduce((acc, time) => {
+        acc[time] = (acc[time] || 0) + 1;
+        return acc;
+    }, {});
+
+    let seasonStartTimestamp = 0;
+    let maxCount = 0;
+    for (const time in dateCounts) {
+        if (dateCounts[time] > maxCount) {
+            maxCount = dateCounts[time];
+            seasonStartTimestamp = parseInt(time, 10);
         }
     }
 
-    const now = new Date(); // The current moment in time (UTC based).
+    // Now, get all unique weeks from ALL selected series to build the calendar rows.
+    const allWeekStartTimes = allSchedules.map(s => getWeekStartDate(s.startDateObj)).filter(Boolean);
+    const uniqueSortedWeekStartTimes = [...new Set(allWeekStartTimes)].sort((a, b) => a - b);
+
+    // Find the index of the official season start week.
+    let startIndex = uniqueSortedWeekStartTimes.findIndex(weekStartTime => weekStartTime === seasonStartTimestamp);
+    if (startIndex === -1) { // Fallback to the first week if no common start date is found
+        startIndex = 0;
+    }
+
+    const weekStartTimes = uniqueSortedWeekStartTimes.slice(startIndex, startIndex + 12);
+
+    const calendarWeeks = weekStartTimes.map(startTime => {
+        const weekStart = new Date(startTime);
+        const weekEnd = new Date(startTime);
+        weekEnd.setUTCDate(weekEnd.getUTCDate() + 7);
+        return { start: weekStart, end: weekEnd };
+    });
 
     return (
         <div ref={ref} className={`mt-8 p-6 shadow-lg border ${isDarkMode ? 'bg-neutral-800 border-neutral-700' : 'bg-white border-gray-200'}`}>
@@ -37,6 +70,7 @@ const CalendarTable = React.forwardRef(({ seriesData, isDarkMode, getCarsForWeek
                     <thead className={isDarkMode ? 'bg-neutral-900' : 'bg-gray-50'}>
                         <tr>
                             <th scope="col" className={`px-6 py-3 text-left text-xs font-medium ${isDarkMode ? 'text-neutral-300' : 'text-gray-500'} uppercase`}>Week</th>
+                            <th scope="col" className={`px-3 py-3 text-left text-xs font-medium ${isDarkMode ? 'text-neutral-300' : 'text-gray-500'} uppercase`}>Start Date</th>
                             {seriesData.map(season => (
                                 <th key={season.series_id || season.season_name} scope="col" className={`px-3 py-3 text-left text-xs font-medium ${isDarkMode ? 'text-neutral-300' : 'text-gray-500'} uppercase`}>
                                     <div className="text-center">{season.season_name}</div> {/* Centered series name */}
@@ -56,8 +90,11 @@ const CalendarTable = React.forwardRef(({ seriesData, isDarkMode, getCarsForWeek
                             return (
                             <tr key={i} className={`transition-colors duration-300 ${isCurrentWeek ? (isDarkMode ? 'bg-yellow-900/50' : 'bg-yellow-100') : ''}`}>
                                 <td className={`px-6 py-4 whitespace-nowrap text-sm font-medium ${isDarkMode ? 'text-neutral-100' : 'text-gray-900'} text-center`}>{i + 1}</td>
+                                <td className={`px-3 py-4 whitespace-nowrap text-sm ${isDarkMode ? 'text-neutral-300' : 'text-gray-600'}`}>
+                                    {week.start.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                                </td>
                                 {seriesData.map(season => {
-                                    const schedule = season.schedules?.find(s => s.startDateObj.getTime() === week.start.getTime());
+                                    const schedule = season.schedules?.find(s => getWeekStartDate(s.startDateObj) === week.start.getTime());
                                     let cellContentHtml = 'N/A';
                                     if (schedule) {
                                         let trackPart = '';
@@ -79,16 +116,17 @@ const CalendarTable = React.forwardRef(({ seriesData, isDarkMode, getCarsForWeek
                                             }
                                         }
 
-                                        const isSpecialSeries = season.season_name.includes('Draft Master') || season.season_name.includes('Ring Meister');
-                                        if (isSpecialSeries && schedule.weekly_cars) {
-                                            weeklyCarsPart = schedule.weekly_cars; // Will be processed by carConfigReplacements later
+                                        const isRingMeister = season.season_name.includes('Ring Meister');
+                                        const isTrackPlusCar = season.season_name.includes('Draft Master') || season.season_name.includes('Outlaw Micro Showdown');
+                                        const isSpecialSeries = isRingMeister || isTrackPlusCar;
+                                        if (isSpecialSeries) {
+                                            weeklyCarsPart = getCarsForWeek(season, schedule);
                                         }
 
                                         // 2. Apply minimizer (for track and track config)
                                         if (isMinimizerActive) {
                                             trackPart = applyReplacements(trackPart, trackNameReplacements);
                                             configPart = applyReplacements(configPart, trackConfigReplacements);
-                                            // weeklyCarsPart for special series will be minimized below
                                         }
 
                                         // 3. Construct display parts
@@ -97,15 +135,14 @@ const CalendarTable = React.forwardRef(({ seriesData, isDarkMode, getCarsForWeek
 
                                         if (isSpecialSeries) {
                                             const minimizedCars = applyCarListReplacements(weeklyCarsPart, carConfigReplacements);
-                                            if (season.season_name.includes("Draft Master")) {
+                                            if (isTrackPlusCar) {
                                                 trackNameForDisplay = trackPart; // Already minimized if active
                                                 if (configPart && configPart.toLowerCase() !== 'oval' && configPart.toLowerCase() !== 'n/a' && configPart.trim() !== '') {
                                                     trackNameForDisplay += ` - ${configPart}`; // Already minimized if active
                                                 }
                                                 subTextForDisplay = minimizedCars; // Car type as subtext
-                                            } else if (season.season_name.includes("Ring Meister")) {
+                                            } else if (isRingMeister) {
                                                 trackNameForDisplay = minimizedCars; // Only car type
-                                                // subTextForDisplay remains empty or could be track if desired, but request implies only car type
                                             }
                                         } else {
                                             trackNameForDisplay = trackPart;

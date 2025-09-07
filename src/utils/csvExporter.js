@@ -30,7 +30,7 @@ const applyCarListReplacements = (weeklyCarsString, replacementsList, isMinimize
     return processedParts.filter(p => p.trim() !== '').join(' / ');
 };
 
-export const generateCsv = ({ seasonsData, selectedSeriesIds, isMinimizerActive }) => {
+export const generateCsv = ({ seasonsData, selectedSeriesIds, isMinimizerActive, getCarsForWeek }) => {
     const selected = seasonsData.filter(season => selectedSeriesIds.has(season.series_id || season.season_name));
     if (selected.length === 0) {
         return { success: false, message: 'Please select at least one series to generate CSV.' };
@@ -76,25 +76,27 @@ export const generateCsv = ({ seasonsData, selectedSeriesIds, isMinimizerActive 
                     }
                 }
 
-                const isSpecialSeries = series.season_name.includes("Draft Master") || series.season_name.includes("Ring Meister");
-                if (isSpecialSeries && schedule.weekly_cars) {
-                    weeklyCarsPart = schedule.weekly_cars;
+                const isRingMeister = series.season_name.includes("Ring Meister");
+                const isTrackPlusCar = series.season_name.includes("Draft Master") || series.season_name.includes("Outlaw Micro Showdown");
+                const isSpecialSeries = isRingMeister || isTrackPlusCar;
+                if (isSpecialSeries) {
+                    weeklyCarsPart = getCarsForWeek(series, schedule);
                 }
 
                 const rainChance = schedule.rain_chance || schedule.track?.rain_chance || 0;
-                
+
                 trackPart = applyReplacements(trackPart, trackNameReplacements, isMinimizerActive);
                 configPart = applyReplacements(configPart, trackConfigReplacements, isMinimizerActive);
 
                 if (isSpecialSeries) {
                     const minimizedCars = applyCarListReplacements(weeklyCarsPart, carConfigReplacements, isMinimizerActive);
-                    if (series.season_name.includes("Draft Master")) {
+                    if (isTrackPlusCar) {
                         let displayTrack = trackPart;
                         if (configPart && configPart.toLowerCase() !== 'oval' && configPart.toLowerCase() !== 'n/a' && configPart.trim() !== '') {
                             displayTrack += ` - ${configPart}`;
                         }
                         cellData = `${displayTrack} - ${minimizedCars}`;
-                    } else if (series.season_name.includes("Ring Meister")) {
+                    } else if (isRingMeister) {
                         cellData = minimizedCars;
                     }
                 } else {

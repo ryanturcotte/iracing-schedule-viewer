@@ -90,7 +90,21 @@ export const carConfigReplacements = [
   // rules will be applied to "Car A" and "Car B" individually.
 
     { original: "Porsche 911 GT3 Cup (992)", replacement: "Porsche Cup" },
-    { original: "Audi RS 3 LMS TCR", replacement: "Touring Cars" }
+    { original: "Audi RS 3 LMS TCR, Honda Civic Type R TCR, Hyundai Elantra N TCR, Hyundai Veloster N TCR", replacement: "Touring Cars" },
+    { original: "Ford Fiesta RS WRC, Subaru WRX STI, VW Beetle", replacement: "Rally Cars" },
+    { original: "Aston Martin Vantage GT4, BMW M4 G82 GT4 Evo, McLaren 570S GT4, Mercedes-AMG GT4, Porsche 718 Cayman GT4 Clubsport MR", replacement: "GT4" },
+    { original: "Aston Martin DBR9 GT1, Chevrolet Corvette C6.R GT1", replacement: "GT1" },
+    { original: "BMW M8 GTE, Chevrolet Corvette C8.R GTE, Ferrari 488 GTE, Ford GTE, Porsche 911 RSR", replacement: "GTE" },
+    { original: "Dirt Outlaw Micro Sprint Car - Winged", replacement: "Outlaw Micro (Winged)" },
+    { original: "Dirt Outlaw Micro Sprint Car - Non-Winged", replacement: "Outlaw Micro (Non-Winged)" },
+    { original: "Gen 4 Chevrolet Monte Carlo - 2003, Gen 4 Ford Taurus - 2003", replacement: "NASCAR Cup Gen 4" },
+    { original: "NASCAR Cup Series Next Gen Chevrolet Camaro ZL1, NASCAR Cup Series Next Gen Ford Mustang, NASCAR Cup Series Next Gen Toyota Camry", replacement: "NASCAR Cup Next Gen" },
+    { original: "NASCAR Legends Buick LeSabre - 1987, NASCAR Legends Chevrolet Monte Carlo - 1987, NASCAR Legends Ford Thunderbird - 1987, NASCAR Legends Pontiac Grand Prix - 1987", replacement: "NASCAR Cup 1987" },
+    { original: "ARCA Chevrolet SS, ARCA Ford Mustang, ARCA Toyota Camry", replacement: "ARCA" },
+    { original: "NASCAR XFINITY Chevrolet Camaro, NASCAR XFINITY Ford Mustang, NASCAR XFINITY Toyota Supra", replacement: "NASCAR Not-Cup" },
+    { original: "NASCAR Truck Chevrolet Silverado, NASCAR Truck Ford F150, NASCAR Truck Toyota Tundra TRD Pro", replacement: "NASCAR Trucks" },
+    { original: "", replacement: "" }
+
 ];
 
 export const timeReplacements = [
