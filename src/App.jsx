@@ -82,6 +82,7 @@ const App = () => {
         selectedSeriesIds,
         setSelectedSeriesIds,
         selectedTrackTypes,
+        setSelectedTrackTypes,
         searchTerm,
         showSearchInput,
         filterByRain,
@@ -239,7 +240,7 @@ const App = () => {
             setDataLoaded(true);
             if (clearSelections) {
                 setSelectedSeriesIds(new Set());
-                setSelectedTrackTypes(new Set()); // Clear track type filter
+                setSelectedTrackTypes(new Set());
             }
             // Only reset the calendar if it's a manual load, not the initial auto-load
             if (!isInitialAutoLoad) {
@@ -513,7 +514,7 @@ const App = () => {
                 <TransitionGroup>
                   {showCalendarTable && tableSeriesData.length > 0 && (
                     <CSSTransition nodeRef={calendarTableRef} key="calendar-table-transition" timeout={500} classNames="table-appear" appear>
-                      <CalendarTable ref={calendarTableRef} seriesData={tableSeriesData} isDarkMode={isDarkMode} getCarsForWeek={getCarsForWeek} applyReplacements={applyReplacements} isMinimizerActive={isMinimizerActive} timeReplacements={timeReplacements} />
+                      <CalendarTable ref={calendarTableRef} seriesData={tableSeriesData} isDarkMode={isDarkMode} getCarsForWeek={getCarsForWeek} applyReplacements={applyReplacements} isMinimizerActive={isMinimizerActive} timeReplacements={timeReplacements} applyCarListReplacements={applyCarListReplacements} carConfigReplacements={carConfigReplacements} />
                     </CSSTransition>
                   )}
                 </TransitionGroup>

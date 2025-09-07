@@ -38,8 +38,6 @@ export const generateCsv = ({ seasonsData, selectedSeriesIds, isMinimizerActive 
 
     const escapeCsv = (str) => `"${String(str || '').replace(/"/g, '""')}"`;
 
-    const headerRow = ['RowType', ...selected.map(s => s.season_name)];
-
     const dataRows = {
         Time: ['Time'], License: ['License'], Style: ['Style'], Name: ['Name']
     };
@@ -114,7 +112,7 @@ export const generateCsv = ({ seasonsData, selectedSeriesIds, isMinimizerActive 
         }
     });
 
-    const csvContent = [headerRow.map(escapeCsv).join(','), ...Object.values(dataRows).map(row => row.map(escapeCsv).join(','))].join('\n');
+    const csvContent = Object.values(dataRows).map(row => row.map(escapeCsv).join(',')).join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
     const url = URL.createObjectURL(blob);

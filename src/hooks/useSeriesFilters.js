@@ -65,7 +65,8 @@ export const useSeriesFilters = (seasonsData, seriesHasRainMap) => {
 
     return {
         selectedLicenseLevels, selectedSeriesIds, setSelectedSeriesIds,
-        selectedTrackTypes, searchTerm, showSearchInput,
+        selectedTrackTypes, setSelectedTrackTypes,
+        searchTerm, showSearchInput,
         filterByRain, setFilterByRain,
         includeYearLongSeries, setIncludeYearLongSeries,
         allSeriesSelected, filteredSeries,
