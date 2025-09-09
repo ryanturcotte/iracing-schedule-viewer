@@ -11,6 +11,12 @@ import { generateCsv as exportToCsv } from './utils/csvExporter';
 import { useAppSettings } from './hooks/useAppSettings';
 import { useSeriesFilters } from './hooks/useSeriesFilters';
 
+// Helper function for formatting
+const toTitleCase = (str) => {
+    if (!str) return '';
+    return str.toLowerCase().replace(/\b\w/g, char => char.toUpperCase());
+};
+
 // Main App component
 const App = () => {
     const { parsePdf } = usePdfParser();
@@ -66,6 +72,13 @@ const App = () => {
         });
         return Array.from(types).sort();
     }, [seasonsData]);
+
+    const availableDisciplines = useMemo(() => {
+        if (!seasonsData || seasonsData.length === 0) return [];
+        const disciplines = new Set(seasonsData.map(s => s.discipline).filter(d => d && d !== 'Unknown'));
+        return Array.from(disciplines).sort();
+    }, [seasonsData]);
+
     const seriesHasRainMap = useMemo(() => {
         const map = new Map();
         seasonsData.forEach(season => {
@@ -99,6 +112,17 @@ const App = () => {
         resetFilters
     } = useSeriesFilters(seasonsData, seriesHasRainMap);
 
+    // State for the new Discipline filter
+    const [selectedDisciplines, setSelectedDisciplines] = useState(() => new Set(getCookie('selectedDisciplines') ? JSON.parse(getCookie('selectedDisciplines')) : []));
+
+    const handleDisciplineChange = useCallback((discipline) => {
+        setSelectedDisciplines(prev => {
+            const newSet = new Set(prev);
+            newSet.has(discipline) ? newSet.delete(discipline) : newSet.add(discipline);
+            return newSet;
+        });
+    }, []);
+
     // Effect to save selections to cookies
     // Save cookies for 90 days, about the length of an iRacing season.
     useEffect(() => {
@@ -110,6 +134,7 @@ const App = () => {
         setCookie('includeYearLongSeries', includeYearLongSeries, 90);
         setCookie('isDarkMode', isDarkMode, 90);
         setCookie('filterByRain', filterByRain, 90);
+        setCookie('selectedDisciplines', JSON.stringify(Array.from(selectedDisciplines)), 90);
     }, [selectedSeriesIds, selectedLicenseLevels, selectedTrackTypes, selectedDataSource, isMinimizerActive, includeYearLongSeries, isDarkMode, filterByRain]);
 
     useEffect(() => {
@@ -403,6 +428,7 @@ const App = () => {
         setCookie('isDarkMode', '', -1);
         setCookie('filterByRain', '', -1);
         setCookie('hasGeneratedTable', '', -1); // Clear the table generation flag
+        setCookie('selectedDisciplines', '', -1);
 
         // Force a page reload to start fresh without any persisted state.
         window.location.reload();
@@ -419,6 +445,14 @@ const App = () => {
         if (carNames.size === 0) return 'N/A';
         return Array.from(carNames).join(', ');
     }, [carIdMap]);
+
+    // Further filter the series based on the new discipline filter
+    const seriesToDisplay = useMemo(() => {
+        if (selectedDisciplines.size === 0) {
+            return filteredSeries;
+        }
+        return filteredSeries.filter(series => selectedDisciplines.has(series.discipline));
+    }, [filteredSeries, selectedDisciplines]);
 
     const getTooltipContentForSeries = useCallback((series) => {
         if (!series || !series.schedules) return [];
@@ -613,13 +647,13 @@ const App = () => {
                         <div className="flex flex-col md:flex-row gap-6 mb-8">
                             {/* Available Series Section */}
                             <div className={`md:w-2/3 p-6 shadow-inner ${isDarkMode ? 'bg-neutral-800' : 'bg-gray-50'}`}>
-                                <div className="flex items-center mb-4">
-                                    <h2 className={`text-2xl font-semibold ${isDarkMode ? 'text-neutral-200' : 'text-gray-700'}`}>Select Series ({filteredSeries.length})</h2>
+                                <div className="flex flex-wrap items-center mb-4 gap-x-4 gap-y-2">
+                                    <h2 className={`text-2xl font-semibold ${isDarkMode ? 'text-neutral-200' : 'text-gray-700'}`}>Select Series ({seriesToDisplay.length})</h2>
                                     <label className="flex items-center ml-auto space-x-2 cursor-pointer mr-4">
                                         <input type="checkbox" checked={allSeriesSelected} onChange={handleSelectAllChange} className="form-checkbox h-5 w-5 text-blue-600 rounded-sm focus:ring-blue-500"/>
                                         <span className={`${isDarkMode ? 'text-neutral-100' : 'text-gray-700'}`}>Select All</span>
                                     </label>
-                                    <label className="flex items-center space-x-2 cursor-pointer">
+                                    <label className="flex items-center space-x-2 cursor-pointer mr-4">
                                         <input
                                             type="checkbox"
                                             checked={isMinimizerActive}
@@ -628,7 +662,7 @@ const App = () => {
                                         />
                                         <span className={`${isDarkMode ? 'text-neutral-100' : 'text-gray-700'}`}>Minimize Text</span>
                                     </label>
-                                    <label className="flex items-center space-x-2 cursor-pointer ml-4">
+                                    <label className="flex items-center space-x-2 cursor-pointer">
                                         <input
                                             type="checkbox"
                                             checked={includeYearLongSeries}
@@ -642,7 +676,7 @@ const App = () => {
                                 </div>
                                 <div className="max-h-[60vh] overflow-y-auto">
                                     <TransitionGroup>
-                                        {filteredSeries.map(season => {
+                                        {seriesToDisplay.map(season => {
                                             if (!season || !season.season_name) return null;
                                             const seriesKey = season.series_id || season.season_name;
                                             if (!seriesItemRefs.current[seriesKey]) seriesItemRefs.current[seriesKey] = React.createRef();
@@ -700,7 +734,7 @@ const App = () => {
                                 {/* Filter Series Section */}
                                 <div className={`p-6 shadow-inner ${isDarkMode ? 'bg-neutral-800' : 'bg-blue-50'}`}>
                                     <h2 className={`text-2xl font-semibold mb-4 ${isDarkMode ? 'text-neutral-200' : 'text-blue-600'}`}>Filter Series</h2>
-                                    <div className="flex flex-col md:flex-row md:gap-6 md:flex-wrap"> {/* Wrapper for side-by-side layout */}
+                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"> {/* Wrapper for side-by-side layout */}
                                          {/* License Level Filter Section */}
                                         <div className="flex-1 mb-6 md:mb-0">
                                             <h3 className={`text-lg font-medium mb-3 ${isDarkMode ? 'text-neutral-300' : 'text-gray-700'}`}>By License Level:</h3>
@@ -718,7 +752,7 @@ const App = () => {
                                         {/* Track Type Filter Section */}
                                         {availableTrackTypes.length > 0 && (
                                             <div className="flex-1 mb-6 md:mb-0">
-                                                <h3 className={`text-lg font-medium mb-3 ${isDarkMode ? 'text-neutral-300' : 'text-gray-700'}`}>By License Type:</h3>
+                                                <h3 className={`text-lg font-medium mb-3 ${isDarkMode ? 'text-neutral-300' : 'text-gray-700'}`}>By Track Type:</h3>
                                                 <div className="flex flex-col items-start gap-2">
                                                 {availableTrackTypes.map((type) => (
                                                         <label key={type} className={`flex items-center space-x-2 cursor-pointer px-4 py-2 rounded-full shadow-xs transition-all text-sm ${
@@ -728,6 +762,25 @@ const App = () => {
                                                         }`}>
                                                             <input type="checkbox" checked={selectedTrackTypes.has(type)} onChange={() => handleTrackTypeChange(type)} className="form-checkbox h-5 w-5" />
                                                             <span>{formatTrackType(type)}</span>
+                                                        </label>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {/* Discipline Filter Section */}
+                                        {availableDisciplines.length > 0 && (
+                                            <div className="flex-1 mb-6 md:mb-0">
+                                                <h3 className={`text-lg font-medium mb-3 ${isDarkMode ? 'text-neutral-300' : 'text-gray-700'}`}>By Discipline:</h3>
+                                                <div className="flex flex-col items-start gap-2">
+                                                    {availableDisciplines.map((discipline) => (
+                                                        <label key={discipline} className={`flex items-center space-x-2 cursor-pointer px-4 py-2 rounded-full shadow-xs transition-all text-sm ${
+                                                            selectedDisciplines.has(discipline)
+                                                                ? (isDarkMode ? 'bg-purple-600 text-white ring-2 ring-offset-2 ring-offset-transparent ring-white' : 'bg-purple-500 text-white ring-2 ring-offset-2 ring-offset-transparent ring-white')
+                                                                : (isDarkMode ? 'bg-neutral-600 text-neutral-200 opacity-80 hover:opacity-100' : 'bg-gray-300 text-gray-800 opacity-80 hover:opacity-100')
+                                                        }`}>
+                                                            <input type="checkbox" checked={selectedDisciplines.has(discipline)} onChange={() => handleDisciplineChange(discipline)} className="form-checkbox h-5 w-5" />
+                                                            <span>{toTitleCase(discipline)}</span>
                                                         </label>
                                                     ))}
                                                 </div>

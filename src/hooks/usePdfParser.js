@@ -19,6 +19,71 @@ const downloadJson = (data, filename) => {
 
 // --- Start of refactored parsing logic ---
 
+/**
+ * First-pass parser for the PDF's table of contents (TOC).
+ * It builds a map of series names to their discipline and license class.
+ * @param {PDFDocumentProxy} pdf - The loaded PDF.js document object.
+ * @returns {Promise<Map<string, {discipline: string, license: string}>>}
+ */
+const parseTableOfContents = async (pdf) => {
+    const seriesMap = new Map();
+    const INDENT = { DISCIPLINE: 56, LICENSE_CLASS: 76, SERIES: 96 };
+    let currentDiscipline = 'Unknown';
+    let currentLicenseClass = 'Unknown';
+
+    // The TOC is usually within the first 5 pages.
+    const numTocPages = Math.min(5, pdf.numPages);
+
+    for (let i = 1; i <= numTocPages; i++) {
+        const page = await pdf.getPage(i);
+        const content = await page.getTextContent();
+
+        // Sort items by y-coordinate (desc) and then x-coordinate (asc) to process in reading order.
+        const sortedItems = content.items.sort((a, b) => {
+            if (a.transform[5] > b.transform[5]) return -1;
+            if (a.transform[5] < b.transform[5]) return 1;
+            if (a.transform[4] < b.transform[4]) return -1;
+            if (a.transform[4] > b.transform[4]) return 1;
+            return 0;
+        });
+
+        for (const item of sortedItems) {
+            const x = item.transform[4];
+            const text = item.str.trim();
+
+            if (!text || item.height === 0) continue;
+
+            // 1. Identify Discipline Headers (e.g., "OVAL", "SPORTS CAR")
+            if (x < INDENT.LICENSE_CLASS && text === text.toUpperCase() && text.includes('.')) {
+                const disciplineMatch = text.match(/^([A-Z\s]+)\s*\./);
+                if (disciplineMatch) {
+                    currentDiscipline = disciplineMatch[1].trim();
+                    currentLicenseClass = 'Unknown'; // Reset license class on new discipline
+                }
+            }
+            // 2. Identify License Class Headers (e.g., "R Class Series (OVAL)")
+            else if (x >= INDENT.LICENSE_CLASS && x < INDENT.SERIES && text.includes('Class Series')) {
+                const licenseMatch = text.match(/^([A-Z])\s+Class/);
+                if (licenseMatch) {
+                    currentLicenseClass = licenseMatch[1];
+                }
+            }
+            // 3. Identify Series Names (indented the most)
+            else if (x >= INDENT.SERIES && text.includes('Season')) {
+                const seriesNameWithDots = text.replace(/\s*\.+\s*$/, '').trim();
+                // Extract the base name (without season info) to use as a key.
+                // This makes matching more reliable.
+                const seriesMatch = seriesNameWithDots.match(SERIES_NAME_REGEX);
+                if (seriesMatch && seriesMatch[1]) {
+                    const baseName = seriesMatch[1].trim();
+                    seriesMap.set(baseName, { discipline: currentDiscipline, license: currentLicenseClass });
+                }
+            }
+        }
+    }
+    return seriesMap;
+};
+
 const SERIES_NAME_REGEX = /^(.*?)(\s*-*\s*\d{4}\s+Season.*)$/i;
 const WEEK_REGEX = /^Week\s+(\d+)\s+\((\d{4}-\d{2}-\d{2})\)/;
 const LICENSE_REGEX = /^(Rookie|Class\s+[A-D])\s+\((\d)\.0\)\s*-->/;
@@ -34,7 +99,7 @@ const isStructuralOrDetailLine = (line) => {
     if (!line || line.trim().length === 0) return true;
     // Regex for lines that define the structure of the schedule or series details
     const structuralPatterns = [
-        /^(Week\s+\d+|Rookie|Class\s+[A-D]|Races\s+(?:every|at)|Min entries|See race week)/i,
+        /^(Week\s+\d+|Rookie|Class\s+[A-D]|Races\s+(?:every|at)|Min entries)/i,
         /Penalty/i,
         /No incident/i,
         /DQ at/i,
@@ -65,7 +130,7 @@ const isNewSeriesHeuristic = (parsedWeekNumber, currentDate, parsingState) => {
  * Handles a line that is identified as a new series header.
  * @returns A new series object if a new series is found, otherwise null.
  */
-const handleNewSeriesLine = (line, seriesData, currentSeriesRef) => {
+const handleNewSeriesLine = (line, seriesData, currentSeriesRef, seriesClassMap, licenseLetterToGroupMap) => {
     const seriesMatch = line.match(SERIES_NAME_REGEX);
     if (seriesMatch && seriesMatch[1]) {
         if (currentSeriesRef.current) {
@@ -75,11 +140,28 @@ const handleNewSeriesLine = (line, seriesData, currentSeriesRef) => {
         if (/\bfixed\b/i.test(line) && !/\bfixed\b/i.test(cleanedName)) {
             cleanedName += " - Fixed";
         }
+
+        let tocInfo = seriesClassMap.get(cleanedName);
+        // If an exact match isn't found, try a fuzzy match. This handles cases where the TOC name
+        // is slightly different (e.g., "NASCAR Gen 4 Cup Series" in TOC vs. "NASCAR Gen 4 Cup" in header).
+        if (!tocInfo) {
+            for (const [key, value] of seriesClassMap.entries()) {
+                // Check if the TOC key starts with the header name, or vice-versa.
+                // This finds the most likely match.
+                if (key.startsWith(cleanedName) || cleanedName.startsWith(key)) {
+                    tocInfo = value;
+                    break;
+                }
+            }
+        }
+
         currentSeriesRef.current = {
             season_name: cleanedName,
-            license_group: 0,
+            license_group: tocInfo ? (licenseLetterToGroupMap[tocInfo.license] || 0) : 0,
+            discipline: tocInfo ? tocInfo.discipline : 'Unknown',
             schedules: [],
-            car_types: [],
+            car_class: '', // New property for the car class string
+            car_types: [], // Kept for backward compatibility if used elsewhere
             race_frequency: ''
         };
         return true;
@@ -97,20 +179,23 @@ const handleSeriesInfoLine = (line, currentSeries, licenseClassMap, DEBUG_LOGGIN
 
     const licenseMatch = line.match(LICENSE_REGEX);
     if (licenseMatch) {
-        const licenseName = licenseMatch[1];
-        const safetyRatingNum = licenseMatch[2];
-        if (DEBUG_LOGGING) console.log(`  Series Info: Found license - "${licenseName} (${safetyRatingNum}.0)"`);
+        // Only use this as a fallback if the TOC parsing didn't set a license group.
+        if (currentSeries.license_group === 0) {
+            const licenseName = licenseMatch[1];
+            const safetyRatingNum = licenseMatch[2];
+            if (DEBUG_LOGGING) console.log(`  Series Info: Found license (fallback) - "${licenseName} (${safetyRatingNum}.0)"`);
 
-        if (licenseName === 'Rookie' && safetyRatingNum === '1') {
-            currentSeries.license_group = licenseClassMap['Rookie'];
-        } else {
-            const licensePromotionMap = {
-                'Rookie': licenseClassMap['D'],
-                'Class D': licenseClassMap['C'],
-                'Class C': licenseClassMap['B'],
-                'Class B': licenseClassMap['A'],
-            };
-            currentSeries.license_group = licensePromotionMap[licenseName] || 0;
+            if (licenseName === 'Rookie' && safetyRatingNum === '1') {
+                currentSeries.license_group = licenseClassMap['Rookie'];
+            } else {
+                const licensePromotionMap = {
+                    'Rookie': licenseClassMap['D'],
+                    'Class D': licenseClassMap['C'],
+                    'Class C': licenseClassMap['B'],
+                    'Class B': licenseClassMap['A'],
+                };
+                currentSeries.license_group = licensePromotionMap[licenseName] || 0;
+            }
         }
         return true;
     }
@@ -123,9 +208,11 @@ const handleSeriesInfoLine = (line, currentSeries, licenseClassMap, DEBUG_LOGGIN
     }
 
     // If it's not a known structural line, assume it's a car type.
-    if (!isStructuralOrDetailLine(line)) {
-        const existingCars = currentSeries.car_types[0]?.car_type || '';
-        currentSeries.car_types = [{ car_type: (existingCars + ' ' + line).trim() }];
+    // Also check that it's not a series name, which can sometimes be repeated.
+    if (!isStructuralOrDetailLine(line) && !line.match(SERIES_NAME_REGEX)) {
+        if (DEBUG_LOGGING) console.log(`  Series Info: Found car class part - "${line}"`);
+        // Append to the new car_class property
+        currentSeries.car_class = (currentSeries.car_class + ' ' + line).trim();
         return true;
     }
 
@@ -135,7 +222,7 @@ const handleSeriesInfoLine = (line, currentSeries, licenseClassMap, DEBUG_LOGGIN
 /**
  * Handles a line that is identified as a weekly schedule entry.
  */
-const handleScheduleLine = (line, seriesData, currentSeriesRef, parsingState, DEBUG_LOGGING) => {
+const handleScheduleLine = (line, seriesData, currentSeriesRef, parsingState, seriesClassMap, licenseLetterToGroupMap, DEBUG_LOGGING) => {
     const weekMatch = line.match(WEEK_REGEX);
     if (!weekMatch) return false;
 
@@ -157,9 +244,12 @@ const handleScheduleLine = (line, seriesData, currentSeriesRef, parsingState, DE
             if (currentSeriesRef.current) {
                 seriesData.push(currentSeriesRef.current);
             }
+            const tocInfo = seriesClassMap.get(potentialSeriesName.replace(/^\d+\.\s*/, ''));
             currentSeriesRef.current = {
                 season_name: potentialSeriesName.replace(/^\d+\.\s*/, ''),
-                license_group: 0, schedules: [], car_types: [], race_frequency: ''
+                license_group: tocInfo ? (licenseLetterToGroupMap[tocInfo.license] || 0) : 0,
+                discipline: tocInfo ? tocInfo.discipline : 'Unknown',
+                schedules: [], car_class: '', car_types: [], race_frequency: ''
             };
         }
     }
@@ -356,9 +446,14 @@ const performPdfParsing = async (pdfFile, debug = false) => {
     
     pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfJsVersion}/pdf.worker.min.js`;
     
+    const licenseLetterToGroupMap = { 'R': 1, 'D': 2, 'C': 3, 'B': 4, 'A': 5 };
+
     const arrayBuffer = await pdfFile.arrayBuffer();
     const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
     
+    const seriesClassMap = await parseTableOfContents(pdf);
+    if (DEBUG_LOGGING) downloadJson(Array.from(seriesClassMap.entries()), 'series-class-map.json');
+
     let seriesData = [];
     let allPageItems = [];
     let currentSeriesRef = { current: null };
@@ -396,7 +491,7 @@ const performPdfParsing = async (pdfFile, debug = false) => {
         if (DEBUG_LOGGING) console.log(`Page ${i} lines:`, lines);
 
         for (const line of lines) {
-            if (handleNewSeriesLine(line, seriesData, currentSeriesRef)) {
+            if (handleNewSeriesLine(line, seriesData, currentSeriesRef, seriesClassMap, licenseLetterToGroupMap)) {
                 // Reset parsing state for the new series
                 Object.assign(parsingState, {
                     expectCarForLastSchedule: false,
@@ -417,7 +512,7 @@ const performPdfParsing = async (pdfFile, debug = false) => {
                     parsingState.previousLine = line;
                     continue;
                 }
-                if (handleScheduleLine(line, seriesData, currentSeriesRef, parsingState, DEBUG_LOGGING)) {
+                if (handleScheduleLine(line, seriesData, currentSeriesRef, parsingState, seriesClassMap, licenseLetterToGroupMap, DEBUG_LOGGING)) {
                     parsingState.previousLine = line;
                     continue;
                 }
