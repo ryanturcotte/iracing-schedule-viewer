@@ -26,8 +26,7 @@ const App = () => {
     const [dataLoaded, setDataLoaded] = useState(false);
     const [carIdMap, setCarIdMap] = useState(new Map());
     const initialLoadPerformed = useRef(false);
-    const initialTableGenerationAttempted = useRef(false);
-    
+    const initialTableGenerationAttempted = useRef(false); // To prevent re-generating table on every render
     // State for hover tooltip
     const [hoveredSeriesTracks, setHoveredSeriesTracks] = useState(null); // { seriesId: string, tracks: string[], position: { top: number, left: number } }
     const hoverTimerRef = useRef(null);
@@ -335,11 +334,14 @@ const App = () => {
         // This prevents React event objects from being set as the message when called from a button.
         const messageToSet = typeof customMessage === 'string' ? customMessage : 'Calendar table generated!';
         setMessage(messageToSet);
+        // Set a cookie to remember that the user has generated a table
+        setCookie('hasGeneratedTable', 'true', 90);
     }, [seasonsData, selectedSeriesIds]);
 
     // Effect to auto-generate calendar on initial load if selections exist
     useEffect(() => {
-        if (dataLoaded && selectedSeriesIds.size > 0 && !initialTableGenerationAttempted.current) {
+        const hasGeneratedBefore = getCookie('hasGeneratedTable') === 'true';
+        if (dataLoaded && selectedSeriesIds.size > 0 && hasGeneratedBefore && !initialTableGenerationAttempted.current) {
             const today = new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
             generateCalendarTable(`Calendar table restored from saved selections on ${today}.`);
             initialTableGenerationAttempted.current = true;
@@ -365,28 +367,23 @@ const App = () => {
     }, []);
 
     const handleReset = useCallback(() => {
-        resetFilters();
-        resetAppSettings();
-        setShowCalendarTable(false);
-        setTableSeriesData([]);
-        setMessage('Selections and filters have been reset.');
-        setShowDataSourceSelector(true);
-        // Reset the data source dropdown to the default value for the UI.
-        if (availableFiles.length > 0) {
-            setSelectedDataSource(availableFiles[0]);
-        } else {
-            setSelectedDataSource('');
-        }
-        // Clear all cookies to ensure a fresh start on the next page load.
+        // To ensure a truly clean slate, we delete all preference cookies
+        // and then reload the page. This prevents the state-saving useEffect
+        // from immediately re-creating cookies with default values before
+        // the user has taken any action.
         setCookie('selectedDataSource', '', -1);
-        setCookie('selectedSeriesIds', [], -1);
-        setCookie('selectedLicenseLevels', [], -1);
-        setCookie('selectedTrackTypes', [], -1);
-        setCookie('isMinimizerActive', true, -1);
-        setCookie('includeYearLongSeries', false, -1);
-        setCookie('isDarkMode', true, -1);
-        setCookie('filterByRain', false, -1);
-    }, [resetFilters, resetAppSettings, availableFiles]);
+        setCookie('selectedSeriesIds', '', -1);
+        setCookie('selectedLicenseLevels', '', -1);
+        setCookie('selectedTrackTypes', '', -1);
+        setCookie('isMinimizerActive', '', -1);
+        setCookie('includeYearLongSeries', '', -1);
+        setCookie('isDarkMode', '', -1);
+        setCookie('filterByRain', '', -1);
+        setCookie('hasGeneratedTable', '', -1); // Clear the table generation flag
+
+        // Force a page reload to start fresh without any persisted state.
+        window.location.reload();
+    }, []);
 
     const getCarsForWeek = useCallback((season, schedule) => {
         if (!schedule) return 'N/A';
