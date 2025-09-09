@@ -454,6 +454,30 @@ const App = () => {
         return filteredSeries.filter(series => selectedDisciplines.has(series.discipline));
     }, [filteredSeries, selectedDisciplines]);
 
+    const handleSurpriseMe = useCallback(() => {
+        if (seriesToDisplay.length === 0) {
+            setMessage("No series available to select from. Try adjusting your filters.");
+            return;
+        }
+
+        // Clear existing selections
+        const newSelections = new Set();
+        const numToSelect = Math.min(8, seriesToDisplay.length);
+
+        // Shuffle the array to get random series and take the desired number
+        const shuffled = [...seriesToDisplay].sort(() => 0.5 - Math.random());
+        const randomSeries = shuffled.slice(0, numToSelect);
+
+        randomSeries.forEach(series => {
+            const seriesKey = series.series_id || series.season_name;
+            newSelections.add(seriesKey);
+        });
+
+        setSelectedSeriesIds(newSelections);
+
+        setMessage(`Voilà! Here are ${numToSelect} random series for you.`);
+    }, [seriesToDisplay, setSelectedSeriesIds]);
+
     const getTooltipContentForSeries = useCallback((series) => {
         if (!series || !series.schedules) return [];
 
@@ -647,13 +671,18 @@ const App = () => {
                         <div className="flex flex-col md:flex-row gap-6 mb-8">
                             {/* Available Series Section */}
                             <div className={`md:w-2/3 p-6 shadow-inner ${isDarkMode ? 'bg-neutral-800' : 'bg-gray-50'}`}>
-                                <div className="flex flex-wrap items-center mb-4 gap-x-4 gap-y-2">
+                                <div className="flex justify-between items-center mb-2">
                                     <h2 className={`text-2xl font-semibold ${isDarkMode ? 'text-neutral-200' : 'text-gray-700'}`}>Select Series ({seriesToDisplay.length})</h2>
-                                    <label className="flex items-center ml-auto space-x-2 cursor-pointer mr-4">
+                                    <div className="flex items-center">
+                                        <input type="text" placeholder="Search..." value={searchTerm} onChange={handleSearchChange} className={`px-3 py-1.5 border rounded-md shadow-xs transition-all ${isDarkMode ? 'bg-neutral-700 border-neutral-600' : 'bg-white border-gray-300'}`} />
+                                    </div>
+                                </div>
+                                <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mb-4 border-b pb-4 ${isDarkMode ? 'border-neutral-700' : 'border-gray-200'}">
+                                    <label className="flex items-center space-x-2 cursor-pointer">
                                         <input type="checkbox" checked={allSeriesSelected} onChange={handleSelectAllChange} className="form-checkbox h-5 w-5 text-blue-600 rounded-sm focus:ring-blue-500"/>
                                         <span className={`${isDarkMode ? 'text-neutral-100' : 'text-gray-700'}`}>Select All</span>
                                     </label>
-                                    <label className="flex items-center space-x-2 cursor-pointer mr-4">
+                                    <label className="flex items-center space-x-2 cursor-pointer">
                                         <input
                                             type="checkbox"
                                             checked={isMinimizerActive}
@@ -671,8 +700,9 @@ const App = () => {
                                         />
                                         <span className={`${isDarkMode ? 'text-neutral-100' : 'text-gray-700'}`}>Include Year-Long Series</span>
                                     </label>
-                                    <button onClick={handleSearchToggle} className={`ml-3 p-1 rounded-full ${isDarkMode ? 'text-neutral-300 hover:text-white' : 'text-gray-600 hover:text-black'}`}><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.197 5.197a7.5 7.5 0 0 0 10.607 10.607Z" /></svg></button>
-                                    <input type="text" placeholder="Search..." value={searchTerm} onChange={handleSearchChange} className={`ml-4 px-3 py-1.5 border rounded-md shadow-xs transition-all ${showSearchInput ? 'w-64 opacity-100' : 'w-0 opacity-0'} ${isDarkMode ? 'bg-neutral-700 border-neutral-600' : 'bg-white border-gray-300'}`} />
+                                    <button onClick={handleSurpriseMe} className={`ml-auto px-3 py-1.5 text-sm rounded-md shadow-sm ${isDarkMode ? 'bg-yellow-600 hover:bg-yellow-500 text-white' : 'bg-yellow-400 hover:bg-yellow-500 text-black'}`}>
+                                        🎁 Surprise Me
+                                    </button>
                                 </div>
                                 <div className="max-h-[60vh] overflow-y-auto">
                                     <TransitionGroup>
