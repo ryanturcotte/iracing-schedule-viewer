@@ -21,11 +21,39 @@ const CalendarTable = React.forwardRef(({ seriesData, isDarkMode, getCarsForWeek
         return d.getTime();
     };
 
-    // To determine the season's start, we should prioritize non-year-long series,
-    // as year-long series can skew the "most common" start date.
-    const regularSeries = seriesData.filter(s => s.schedules.length <= 12);
-    const referenceSeries = regularSeries.length > 0 ? regularSeries : seriesData; // Fallback to all if no regular series are selected
+    // --- Determine dominant season length ---
+    const scheduleLengths = seriesData.map(s => s.schedules.length);
+    const lengthCounts = scheduleLengths.reduce((acc, len) => {
+        // Only consider standard season lengths, ignore single-week events or very long series like year-long.
+        if (len > 1 && len <= 13) {
+            acc[len] = (acc[len] || 0) + 1;
+        }
+        return acc;
+    }, {});
 
+    let dominantSeasonLength = 12; // Default to 12
+    let maxCountForLength = 0;
+    // Find the most common length (e.g., 12 or 13)
+    for (const len in lengthCounts) {
+        if (lengthCounts[len] > maxCountForLength) {
+            maxCountForLength = lengthCounts[len];
+            dominantSeasonLength = parseInt(len, 10);
+        }
+    }
+
+    // --- Determine season's start date, prioritizing series with the dominant length ---
+    let referenceSeries = seriesData.filter(s => s.schedules.length === dominantSeasonLength);
+
+    // Fallback if no series match the dominant length (e.g., only 8-week series are selected).
+    if (referenceSeries.length === 0) {
+        // Fallback to any non-year-long series
+        referenceSeries = seriesData.filter(s => s.schedules.length > 1 && s.schedules.length <= 12);
+    }
+    if (referenceSeries.length === 0) {
+        // If still nothing, use all selected data as a last resort.
+        referenceSeries = seriesData;
+    }
+    
     const referenceWeekStartTimes = referenceSeries.flatMap(s => s.schedules).map(s => getWeekStartDate(s.startDateObj)).filter(Boolean);
 
     // Find the most common start date from the reference series to determine the official season start.
@@ -33,7 +61,7 @@ const CalendarTable = React.forwardRef(({ seriesData, isDarkMode, getCarsForWeek
         acc[time] = (acc[time] || 0) + 1;
         return acc;
     }, {});
-
+    
     let seasonStartTimestamp = 0;
     let maxCount = 0;
     for (const time in dateCounts) {
@@ -42,18 +70,37 @@ const CalendarTable = React.forwardRef(({ seriesData, isDarkMode, getCarsForWeek
             seasonStartTimestamp = parseInt(time, 10);
         }
     }
-
+    
     // Now, get all unique weeks from ALL selected series to build the calendar rows.
     const allWeekStartTimes = allSchedules.map(s => getWeekStartDate(s.startDateObj)).filter(Boolean);
     const uniqueSortedWeekStartTimes = [...new Set(allWeekStartTimes)].sort((a, b) => a - b);
 
     // Find the index of the official season start week.
     let startIndex = uniqueSortedWeekStartTimes.findIndex(weekStartTime => weekStartTime === seasonStartTimestamp);
-    if (startIndex === -1) { // Fallback to the first week if no common start date is found
-        startIndex = 0;
+    if (startIndex === -1) { // Fallback if no common start date is found
+        // This can happen if only one series is selected, so there's no "most common" date.
+        // In that case, we should just start from the beginning of that series' schedule.
+        if (referenceWeekStartTimes.length > 0) {
+            const earliestReferenceStart = Math.min(...referenceWeekStartTimes);
+            startIndex = uniqueSortedWeekStartTimes.findIndex(weekStartTime => weekStartTime === earliestReferenceStart);
+        }
+        // If still not found, fallback to the very first week of all available weeks.
+        if (startIndex === -1) {
+            startIndex = 0;
+        }
     }
 
-    const weekStartTimes = uniqueSortedWeekStartTimes.slice(startIndex, startIndex + 12);
+    const weekStartTimes = uniqueSortedWeekStartTimes.slice(startIndex, startIndex + dominantSeasonLength);
+
+    // --- Force calendar to have the dominant number of weeks ---
+    if (weekStartTimes.length < dominantSeasonLength && weekStartTimes.length > 0) {
+        const lastWeekTime = weekStartTimes[weekStartTimes.length - 1];
+        const oneWeekInMillis = 7 * 24 * 60 * 60 * 1000;
+        const weeksToAdd = dominantSeasonLength - weekStartTimes.length;
+        for (let i = 1; i <= weeksToAdd; i++) {
+            weekStartTimes.push(lastWeekTime + (i * oneWeekInMillis));
+        }
+    }
 
     const calendarWeeks = weekStartTimes.map(startTime => {
         const weekStart = new Date(startTime);
