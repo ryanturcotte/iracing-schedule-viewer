@@ -18,7 +18,7 @@ const App = () => {
     const [seasonsData, setSeasonsData] = useState([]);
     const [availableFiles, setAvailableFiles] = useState([]); // Initialize as empty, will be populated from manifest
     const [fileDataMap, setFileDataMap] = useState(new Map());
-    const [selectedDataSource, setSelectedDataSource] = useState(() => getCookie('selectedDataSource') ?? 'season-series-25s3.json');
+    const [selectedDataSource, setSelectedDataSource] = useState(() => getCookie('selectedDataSource') ?? '');
     const [tableSeriesData, setTableSeriesData] = useState([]);
     const [showCalendarTable, setShowCalendarTable] = useState(false);    const [showDataSourceSelector, setShowDataSourceSelector] = useState(() => !getCookie('selectedDataSource'));
     const [message, setMessage] = useState('Please select a data source or upload a file.');
@@ -127,6 +127,10 @@ const App = () => {
                 if (Array.isArray(manifestData)) {
                     setAvailableFiles(manifestData);
                     if (manifestData.length > 0) {
+                        // If no data source is set from a cookie, default to the first one from the manifest.
+                        if (!getCookie('selectedDataSource')) {
+                            setSelectedDataSource(manifestData[0]);
+                        }
                         setMessage('Please select a data source or upload a file.');
                     } else {
                         setMessage('No schedules found in manifest. Please upload a file.');
@@ -368,7 +372,11 @@ const App = () => {
         setMessage('Selections and filters have been reset.');
         setShowDataSourceSelector(true);
         // Reset the data source dropdown to the default value for the UI.
-        setSelectedDataSource('season-series-25s3.json');
+        if (availableFiles.length > 0) {
+            setSelectedDataSource(availableFiles[0]);
+        } else {
+            setSelectedDataSource('');
+        }
         // Clear all cookies to ensure a fresh start on the next page load.
         setCookie('selectedDataSource', '', -1);
         setCookie('selectedSeriesIds', [], -1);
@@ -378,7 +386,7 @@ const App = () => {
         setCookie('includeYearLongSeries', false, -1);
         setCookie('isDarkMode', true, -1);
         setCookie('filterByRain', false, -1);
-    }, [resetFilters, resetAppSettings]);
+    }, [resetFilters, resetAppSettings, availableFiles]);
 
     const getCarsForWeek = useCallback((season, schedule) => {
         if (!schedule) return 'N/A';
