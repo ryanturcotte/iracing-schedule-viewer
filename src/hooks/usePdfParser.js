@@ -188,37 +188,55 @@ const handleScheduleLine = (line, seriesData, currentSeriesRef, parsingState, DE
     }
 
     let trackName = '';
+    let configName = '';
     let weeklyCars = null;
     parsingState.expectCarForLastSchedule = false; // Reset expectation for the current line.
 
     const currentSeries = currentSeriesRef.current;
     if (currentSeries.season_name.includes("Ring Meister")) {
-        trackName = "Nürburgring Nordschleife - Industriefahrten";
-        
+        trackName = "Nürburgring Nordschleife";
+        configName = "Industriefahrten";
+
         // Attempt to strip the known track name from the line to find the car.
         const trackPattern = /Nürburgring Nordschleife\s*-\s*Industriefahrten/i;
         let potentialCar = remainingLine.replace(trackPattern, '').trim();
-        
+
         // Clean up leading separators that might be left over.
         potentialCar = potentialCar.replace(/^-/, '').trim();
 
         if (potentialCar) {
             weeklyCars = potentialCar;
         } else {
-            // If nothing is left, the car must be on the next line.
             parsingState.expectCarForLastSchedule = true;
         }
     } else if (currentSeries.season_name.includes("Draft Master")) {
         const parts = remainingLine.split(/\s+-\s+/);
         if (parts.length >= 2) {
-            trackName = parts.slice(0, -1).join(' - ').trim();
+            const fullTrackName = parts.slice(0, -1).join(' - ').trim();
             weeklyCars = parts.pop().trim();
+
+            const separator = " - ";
+            const separatorIndex = fullTrackName.lastIndexOf(separator);
+            if (separatorIndex !== -1) {
+                trackName = fullTrackName.substring(0, separatorIndex).trim();
+                configName = fullTrackName.substring(separatorIndex + separator.length).trim();
+            } else {
+                trackName = fullTrackName;
+            }
         } else {
             trackName = remainingLine.trim();
             parsingState.expectCarForLastSchedule = true;
         }
     } else {
-        trackName = remainingLine.split(' (')[0].trim();
+        const fullTrackString = remainingLine.split(' (')[0].trim();
+        const separator = " - ";
+        const separatorIndex = fullTrackString.lastIndexOf(separator);
+        if (separatorIndex !== -1) {
+            trackName = fullTrackString.substring(0, separatorIndex).trim();
+            configName = fullTrackString.substring(separatorIndex + separator.length).trim();
+        } else {
+            trackName = fullTrackString;
+        }
     }
 
     const rainRegex = /Rain chance (\d+)%/;
@@ -227,7 +245,7 @@ const handleScheduleLine = (line, seriesData, currentSeriesRef, parsingState, DE
     currentSeries.schedules.push({
         race_week_num: weekNum,
         start_date: startDateStr,
-        track: { track_name: trackName || 'N/A' },
+        track: { track_name: trackName || 'N/A', config_name: configName || null },
         weekly_cars: weeklyCars,
         rain_chance: rainMatch ? parseInt(rainMatch[1], 10) : 0,
         laps: laps
