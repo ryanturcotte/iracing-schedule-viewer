@@ -1,4 +1,4 @@
-import { timeReplacements, carConfigReplacements, trackNameReplacements, trackConfigReplacements } from '../replacementMappings';
+import { timeReplacements, trackNameReplacements, trackConfigReplacements } from '../replacementMappings';
 import { formatTrackType } from './formatting';
 
 // Helper to escape special characters for RegExp
@@ -15,22 +15,7 @@ const applyReplacements = (text, replacementsList, isMinimizerActive) => {
     return newText;
 };
 
-const applyCarListReplacements = (weeklyCarsString, replacementsList, isMinimizerActive) => {
-    if (!weeklyCarsString || typeof weeklyCarsString !== 'string' || !isMinimizerActive) return weeklyCarsString;
-
-    const delimiters = /(\s+vs\s+|\s*\/\s*|\s*,\s*)/i;
-    const parts = weeklyCarsString.split(delimiters);
-    const processedParts = [];
-
-    for (let i = 0; i < parts.length; i++) {
-        if (i % 2 === 0) { // Car name part
-            processedParts.push(applyReplacements(parts[i].trim(), replacementsList, isMinimizerActive));
-        }
-    }
-    return processedParts.filter(p => p.trim() !== '').join(' / ');
-};
-
-export const generateCsv = ({ seasonsData, selectedSeriesIds, isMinimizerActive, getCarsForWeek }) => {
+export const generateCsv = ({ seasonsData, selectedSeriesIds, isMinimizerActive, getCarsForWeek, applyCarListReplacements, carConfigReplacements }) => {
     const selected = seasonsData.filter(season => selectedSeriesIds.has(season.series_id || season.season_name));
     if (selected.length === 0) {
         return { success: false, message: 'Please select at least one series to generate CSV.' };
@@ -89,7 +74,7 @@ export const generateCsv = ({ seasonsData, selectedSeriesIds, isMinimizerActive,
                 configPart = applyReplacements(configPart, trackConfigReplacements, isMinimizerActive);
 
                 if (isSpecialSeries) {
-                    const minimizedCars = applyCarListReplacements(weeklyCarsPart, carConfigReplacements, isMinimizerActive);
+                    const minimizedCars = applyCarListReplacements(weeklyCarsPart, carConfigReplacements); // Use the passed-in function
                     if (isTrackPlusCar) {
                         let displayTrack = trackPart;
                         if (configPart && configPart.toLowerCase() !== 'oval' && configPart.toLowerCase() !== 'n/a' && configPart.trim() !== '') {

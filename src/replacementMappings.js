@@ -39,6 +39,7 @@ export const trackNameReplacements = [
     { original : "Lånkebanen (Hell RX)", replacement : "Hell RX" },
     { original : "MotorLand Aragón", replacement : "Aragon" },
     { original : "Shell V-Power Motorsport Park at The Bend", replacement : "The Bend"},
+    { original : "Autódromo Hermanos Rodríguez", replacement : "Mexico"},
 
     // General wording replacements
     // Some of these are probably superfluous with all the above tracks
@@ -92,7 +93,7 @@ export const carConfigReplacements = [
     { original: "Porsche 911 GT3 Cup (992)", replacement: "Porsche Cup" },
     { original: "Audi RS 3 LMS TCR, Honda Civic Type R TCR, Hyundai Elantra N TCR, Hyundai Veloster N TCR", replacement: "Touring Cars" },
     { original: "Ford Fiesta RS WRC, Subaru WRX STI, VW Beetle", replacement: "Rally Cars" },
-    { original: "Aston Martin Vantage GT4, BMW M4 G82 GT4 Evo, McLaren 570S GT4, Mercedes-AMG GT4, Porsche 718 Cayman GT4 Clubsport MR", replacement: "GT4" },
+    { original: "Porsche 718 Cayman GT4 Clubsport MR McLaren 570S GT4 / Aston Martin Vantage GT4 Mercedes-AMG GT4 / BMW M4 G82 GT4 Evo Ford Mustang GT4", replacement: "GT4" },
     { original: "Aston Martin DBR9 GT1, Chevrolet Corvette C6.R GT1", replacement: "GT1" },
     { original: "BMW M8 GTE, Chevrolet Corvette C8.R GTE, Ferrari 488 GTE, Ford GTE, Porsche 911 RSR", replacement: "GTE" },
     { original: "Dirt Outlaw Micro Sprint Car - Winged", replacement: "Outlaw Micro (Winged)" },
@@ -103,7 +104,9 @@ export const carConfigReplacements = [
     { original: "ARCA Chevrolet SS, ARCA Ford Mustang, ARCA Toyota Camry", replacement: "ARCA" },
     { original: "NASCAR XFINITY Chevrolet Camaro, NASCAR XFINITY Ford Mustang, NASCAR XFINITY Toyota Supra", replacement: "NASCAR Not-Cup" },
     { original: "NASCAR Truck Chevrolet Silverado, NASCAR Truck Ford F150, NASCAR Truck Toyota Tundra TRD Pro", replacement: "NASCAR Trucks" },
-    { original: "", replacement: "" }
+    { original: "Street Stock - Panther C1, Street Stock - Casino M2, Street Stock - Eagle T3", replacement: "Street Stocks" },
+    { original: "BMW M4 GT3 EVO / Lamborghini Huracán GT3 EVO / Mercedes-AMG GT3 2020 / Porsche 911 GT3 R (992) / Ferrari 296 GT3 / Audi R8 LMS EVO II GT3 / Chevrolet Corvette Z06 GT3.R Ford Mustang GT3 / McLaren 720S GT3 EVO Acura NSX GT3 EVO 22 / Aston Martin Vantage GT3 EVO", replacement : "GT3"},
+    { original: "Skip Barber Formula 2000", replacement: "The Skippy"}
 
 ];
 

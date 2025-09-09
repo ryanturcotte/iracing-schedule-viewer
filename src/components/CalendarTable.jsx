@@ -170,11 +170,9 @@ const CalendarTable = React.forwardRef(({ seriesData, isDarkMode, getCarsForWeek
                                             weeklyCarsPart = getCarsForWeek(season, schedule);
                                         }
 
-                                        // 2. Apply minimizer (for track and track config)
-                                        if (isMinimizerActive) {
-                                            trackPart = applyReplacements(trackPart, trackNameReplacements);
-                                            configPart = applyReplacements(configPart, trackConfigReplacements);
-                                        }
+                                        // 2. Apply replacements (the function checks if minimizer is active)
+                                        trackPart = applyReplacements(trackPart, trackNameReplacements);
+                                        configPart = applyReplacements(configPart, trackConfigReplacements);
 
                                         // 3. Construct display parts
                                         let trackNameForDisplay;

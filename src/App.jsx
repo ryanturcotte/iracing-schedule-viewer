@@ -164,49 +164,72 @@ const App = () => {
     }, [isMinimizerActive]);
 
     const applyCarListReplacements = useCallback((weeklyCarsString, replacementsList) => {
-        if (!weeklyCarsString || typeof weeklyCarsString !== 'string' || !isMinimizerActive) return weeklyCarsString;
+        if (!weeklyCarsString || typeof weeklyCarsString !== 'string' || !isMinimizerActive) {
+            return weeklyCarsString;
+        }
 
-        // --- NEW LOGIC for multi-car rules ---
-        // Create a canonical representation of the input string (sorted, comma-separated).
-        const inputCars = weeklyCarsString
-            .split(/\s*(?:\/|vs|,)\s*/) // split by /, vs, or ,
-            .map(c => c.trim())
-            .filter(Boolean)
-            .sort();
-        const canonicalInput = inputCars.join(', ');
+        const multiCarDelimiterRegex = /\s*(\/|,|vs)\s*/;
 
+        // Helper to create a canonical representation of a car list string.
+        const createCanonical = (str, stripPunctuation = false) => {
+            let processedStr = str;
+            if (stripPunctuation) {
+                processedStr = processedStr.replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim();
+            }
+            return processedStr
+                .split(/\s*(?:\/|vs|,)\s*/)
+                .map(c => c.trim().toLowerCase())
+                .filter(Boolean)
+                .sort()
+                .join(', ');
+        };
+
+        const canonicalInput = createCanonical(weeklyCarsString);
+        const canonicalInputNoPunct = createCanonical(weeklyCarsString, true);
+
+        // --- Multi-car rule matching ---
         for (const rule of replacementsList) {
-            // Only consider rules that look like multi-car rules.
-            if (rule.original.includes(',')) {
-                // Create a canonical representation for the rule.
-                const ruleCars = rule.original
-                    .split(',')
-                    .map(c => c.trim())
-                    .filter(Boolean)
-                    .sort();
-                const canonicalRule = ruleCars.join(', ');
+            if (multiCarDelimiterRegex.test(rule.original)) {
+                const canonicalRule = createCanonical(rule.original);
+                if (canonicalInput === canonicalRule) return rule.replacement;
 
-                if (canonicalInput === canonicalRule) {
-                    return rule.replacement; // Found a multi-car match
+                const canonicalRuleNoPunct = createCanonical(rule.original, true);
+                if (canonicalInputNoPunct && canonicalInputNoPunct === canonicalRuleNoPunct) {
+                    return rule.replacement;
                 }
             }
         }
 
-        // If no multi-car rule matched, fall back to replacing individual car names.
-        const delimiters = /(\s+vs\s+|\s*\/\s*|\s*,\s*)/i; // Regex to split by "vs", "/", or "," keeping delimiters for rejoining if needed, but we'll use a standard one.
+        // --- Single-car rule matching (fallback) ---
+        const delimiters = /(\s+vs\s+|\s*\/\s*|\s*,\s*)/i;
         const parts = weeklyCarsString.split(delimiters);
         const processedParts = [];
+        const singleCarRules = replacementsList.filter(r => !multiCarDelimiterRegex.test(r.original));
+
+        const findSingleCarReplacement = (carPart) => {
+            for (const rule of singleCarRules) {
+                if (rule.original.toLowerCase() === carPart.toLowerCase()) return rule.replacement;
+            }
+            const strip = (str) => str.replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+            const strippedCarPart = strip(carPart);
+            if (strippedCarPart) {
+                for (const rule of singleCarRules) {
+                    if (strip(rule.original) === strippedCarPart) return rule.replacement;
+                }
+            }
+            return carPart;
+        };
 
         for (let i = 0; i < parts.length; i++) {
             if (i % 2 === 0) { // Car name part
                 const carPart = parts[i].trim();
                 if (carPart) {
-                    processedParts.push(applyReplacements(carPart, replacementsList));
+                    processedParts.push(findSingleCarReplacement(carPart));
                 }
             }
         }
-        return processedParts.filter(p => p.trim() !== '').join(' / '); // Join valid processed car names with " / "
-    }, [isMinimizerActive, applyReplacements]);
+        return processedParts.filter(p => p.trim() !== '').join(' / ');
+    }, [isMinimizerActive]);
 
     const processAndSetData = useCallback((data) => {
         if (!Array.isArray(data)) { return []; }
@@ -426,10 +449,13 @@ const App = () => {
                         trackPart = sch.track_name;
                     }
                 }
-                let trackDisplay = applyReplacements(trackPart, trackNameReplacements);
-                const minimizedConfig = applyReplacements(configPart, trackConfigReplacements);
-                if (minimizedConfig && minimizedConfig.toLowerCase() !== 'oval' && minimizedConfig.toLowerCase() !== 'n/a' && minimizedConfig.trim() !== '') {
-                    trackDisplay += ` - ${minimizedConfig}`;
+                // Apply replacements only if minimizer is active (the function handles the check).
+                let finalTrackPart = applyReplacements(trackPart, trackNameReplacements);
+                let finalConfigPart = applyReplacements(configPart, trackConfigReplacements);
+
+                let trackDisplay = finalTrackPart;
+                if (finalConfigPart && finalConfigPart.toLowerCase() !== 'oval' && finalConfigPart.toLowerCase() !== 'n/a' && finalConfigPart.trim() !== '') {
+                    trackDisplay += ` - ${finalConfigPart}`;
                 }
                 return trackDisplay || 'N/A';
             };
@@ -475,9 +501,12 @@ const App = () => {
             selectedSeriesIds,
             isMinimizerActive,
             getCarsForWeek,
+            // Pass the car replacement logic and data to the CSV exporter
+            applyCarListReplacements,
+            carConfigReplacements,
         });
         setMessage(result.message);
-    }, [seasonsData, selectedSeriesIds, isMinimizerActive, getCarsForWeek]);
+    }, [seasonsData, selectedSeriesIds, isMinimizerActive, getCarsForWeek, applyCarListReplacements]);
 
     return (
         <div className={`min-h-screen p-4 font-inter transition-colors duration-300 ${isDarkMode ? 'bg-neutral-950 text-neutral-100' : 'bg-gray-100 text-gray-800'}`}>
