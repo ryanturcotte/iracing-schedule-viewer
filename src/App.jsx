@@ -101,14 +101,12 @@ const App = () => {
         setFilterByRain,
         includeYearLongSeries,
         setIncludeYearLongSeries,
-        allSeriesSelected,
         filteredSeries,
         handleLicenseLevelChange,
         handleSearchToggle,
         handleSearchChange,
         handleSeriesSelectionChange,
         handleTrackTypeChange,
-        handleSelectAllChange,
         resetFilters
     } = useSeriesFilters(seasonsData, seriesHasRainMap);
 
@@ -453,6 +451,27 @@ const App = () => {
         }
         return filteredSeries.filter(series => selectedDisciplines.has(series.discipline));
     }, [filteredSeries, selectedDisciplines]);
+
+    const allSeriesSelected = useMemo(() => {
+        if (seriesToDisplay.length === 0) return false;
+        return seriesToDisplay.every(s => selectedSeriesIds.has(s.series_id || s.season_name));
+    }, [seriesToDisplay, selectedSeriesIds]);
+
+    const handleSelectAllChange = useCallback(() => {
+        const seriesToDisplayIds = new Set(seriesToDisplay.map(s => s.series_id || s.season_name));
+
+        if (allSeriesSelected) {
+            // Deselect all visible series
+            setSelectedSeriesIds(prev => {
+                const newSet = new Set(prev);
+                seriesToDisplayIds.forEach(id => newSet.delete(id));
+                return newSet;
+            });
+        } else {
+            // Select all visible series
+            setSelectedSeriesIds(prev => new Set([...prev, ...seriesToDisplayIds]));
+        }
+    }, [allSeriesSelected, seriesToDisplay, setSelectedSeriesIds]);
 
     const handleSurpriseMe = useCallback(() => {
         if (seriesToDisplay.length === 0) {
