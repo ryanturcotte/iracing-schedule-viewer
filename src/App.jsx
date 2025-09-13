@@ -10,6 +10,7 @@ import { formatTrackType } from './utils/formatting';
 import { generateCsv as exportToCsv } from './utils/csvExporter';
 import { useAppSettings } from './hooks/useAppSettings';
 import { useSeriesFilters } from './hooks/useSeriesFilters';
+import { useGoogleAnalytics } from './hooks/useGoogleAnalytics';
 
 // Helper function for formatting
 const toTitleCase = (str) => {
@@ -19,6 +20,8 @@ const toTitleCase = (str) => {
 
 // Main App component
 const App = () => {
+    useGoogleAnalytics();
+
     const { parsePdf } = usePdfParser();
     const { loadFile } = useFileLoader();
     const [seasonsData, setSeasonsData] = useState([]);
