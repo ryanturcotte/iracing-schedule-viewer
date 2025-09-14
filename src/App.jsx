@@ -26,11 +26,6 @@ const App = () => {
 
     useGoogleAnalytics(hasConsent);
 
-    // Effect to set the document title
-    useEffect(() => {
-        document.title = 'iRacing Schedule Viewer';
-    }, []);
-
     const { parsePdf } = usePdfParser();
     const { loadFile } = useFileLoader();
     const [seasonsData, setSeasonsData] = useState([]);
@@ -490,28 +485,24 @@ const App = () => {
     }, [allSeriesSelected, seriesToDisplay, setSelectedSeriesIds]);
 
     const handleSurpriseMe = useCallback(() => {
-        if (seriesToDisplay.length === 0) {
-            setMessage("No series available to select from. Try adjusting your filters.");
+        // Filter for series that are not already selected
+        const unselectedSeries = seriesToDisplay.filter(s => !selectedSeriesIds.has(s.series_id || s.season_name));
+
+        if (unselectedSeries.length === 0) {
+            setMessage("No more series to add, or all visible series are already selected!");
             return;
         }
 
-        // Clear existing selections
-        const newSelections = new Set();
-        const numToSelect = Math.min(8, seriesToDisplay.length);
+        // Pick one random series from the unselected ones
+        const randomIndex = Math.floor(Math.random() * unselectedSeries.length);
+        const seriesToAdd = unselectedSeries[randomIndex];
+        const seriesKey = seriesToAdd.series_id || seriesToAdd.season_name;
 
-        // Shuffle the array to get random series and take the desired number
-        const shuffled = [...seriesToDisplay].sort(() => 0.5 - Math.random());
-        const randomSeries = shuffled.slice(0, numToSelect);
+        // Add the new series to the existing selections
+        setSelectedSeriesIds(prev => new Set(prev).add(seriesKey));
 
-        randomSeries.forEach(series => {
-            const seriesKey = series.series_id || series.season_name;
-            newSelections.add(seriesKey);
-        });
-
-        setSelectedSeriesIds(newSelections);
-
-        setMessage(`Voilà! Here are ${numToSelect} random series for you.`);
-    }, [seriesToDisplay, setSelectedSeriesIds]);
+        setMessage(`🎁 Added "${seriesToAdd.season_name}" to your selections!`);
+    }, [seriesToDisplay, selectedSeriesIds, setSelectedSeriesIds]);
 
     const getTooltipContentForSeries = useCallback((series) => {
         if (!series || !series.schedules) return [];
