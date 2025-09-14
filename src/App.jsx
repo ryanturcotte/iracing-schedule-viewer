@@ -33,7 +33,7 @@ const App = () => {
     const [fileDataMap, setFileDataMap] = useState(new Map());
     const [selectedDataSource, setSelectedDataSource] = useState(() => getCookie('selectedDataSource') ?? '');
     const [tableSeriesData, setTableSeriesData] = useState([]);
-    const [showCalendarTable, setShowCalendarTable] = useState(false);    const [showDataSourceSelector, setShowDataSourceSelector] = useState(() => !getCookie('selectedDataSource'));
+    const [showCalendarTable, setShowCalendarTable] = useState(false);    const [showDataSourceSelector, setShowDataSourceSelector] = useState(false);
     const [message, setMessage] = useState('Please select a data source or upload a file.');
     const [isLoading, setIsLoading] = useState(false); // Start false, will be set true during loads
     const [dataLoaded, setDataLoaded] = useState(false);
@@ -878,9 +878,14 @@ const App = () => {
                             </div>
                         </div>
                         <div className="flex flex-col sm:flex-row justify-center items-center gap-4 mb-8">
-                           <button onClick={generateCalendarTable} className="w-full sm:flex-1 bg-purple-600 text-white font-bold py-3 px-6 rounded-lg shadow-lg hover:bg-purple-700">Generate Schedule</button>
-                           <button onClick={handleReset} className="w-full sm:w-auto bg-red-600 text-white font-bold py-3 px-6 rounded-lg shadow-lg hover:bg-red-700 whitespace-nowrap">Reset</button>
-                           <button onClick={handleGenerateCsv} className="w-full sm:flex-1 bg-green-600 text-white font-bold py-3 px-6 rounded-lg shadow-lg hover:bg-green-700">Generate CSV</button>
+                            <button onClick={generateCalendarTable} className="w-full sm:flex-1 bg-purple-600 text-white font-bold py-3 px-6 rounded-lg shadow-lg hover:bg-purple-700">Generate Schedule</button>
+                            <button onClick={handleReset} className="w-full sm:w-auto bg-red-600 text-white font-bold py-3 px-6 rounded-lg shadow-lg hover:bg-red-700 whitespace-nowrap">Reset</button>
+                            <div className="w-full sm:flex-1 flex flex-col sm:flex-row gap-4">
+                                <a href={`${import.meta.env.BASE_URL}excel template/Template.xlsx`} download="iRacingScheduleTemplate.xlsx" className="w-full sm:w-1/3 bg-green-500 text-white font-bold py-3 px-4 text-center rounded-lg shadow-lg hover:bg-green-600 whitespace-nowrap">
+                                    Excel Template
+                                </a>
+                                <button onClick={handleGenerateCsv} className="w-full sm:w-2/3 bg-green-600 text-white font-bold py-3 px-6 rounded-lg shadow-lg hover:bg-green-700">Generate CSV</button>
+                            </div>
                         </div>
                     </>
                  )}

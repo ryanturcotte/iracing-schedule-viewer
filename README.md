@@ -6,10 +6,10 @@ This is a successor to the Powershell app at https://github.com/ryanturcotte/ira
 
 ## How to use
 
-1. If necessary, select an iRacing schedule data source (PDF or JSON). Click the database icon in top left to change.
-2. Scroll, filter, or search to list series and click the checkbox for series you want to run. Mouse over for a quick review of the schedule.
+1. If updated, most current season schedule will auto-load. If you need to, click the database icon in top left to change.
+2. Scroll, filter, or search to list series and click the checkbox for series you want to run. Mouse over or tap (mobile) to get a quick review of the schedule.
 3. Click Generate Schedule to see view the series table.
-4. To export for printing, click Generate CSV to download the spreadsheet. Check off "Minimize Text" to improve cell spacing.
+4. To export for printing, click Generate CSV to download the spreadsheet. 
 5. Download the Excel template to print your one-page calendar.
 
 ## How to use Excel template
@@ -29,6 +29,8 @@ The Excel template also includes conditional cell formatting for Wet weeks, (cel
 1. Importing from PDF works but some series is missing data that others have.
 2. The "features" when loading a PDF vs. a JSON are not the same, for example rain % only shows on PDF. For 2025S4 I focused on the PDF features but not every series has the same data.
 3. Series that change cars like Draft Masters and Ring Meister may not appear properly. Ring Meister should work with PDF for 2025S4
+4. Some listed tracks may have extra data on the end of it.
+4. CSV Export may be missing a few series when I counted them. Unsure which ones.
 
 ## Background and AI Usage
 
