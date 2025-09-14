@@ -26,6 +26,11 @@ const App = () => {
 
     useGoogleAnalytics(hasConsent);
 
+    // Effect to set the document title
+    useEffect(() => {
+        document.title = 'iRacing Schedule Viewer';
+    }, []);
+
     const { parsePdf } = usePdfParser();
     const { loadFile } = useFileLoader();
     const [seasonsData, setSeasonsData] = useState([]);
