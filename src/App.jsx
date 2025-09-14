@@ -4,6 +4,7 @@ import { trackNameReplacements, trackConfigReplacements, carConfigReplacements, 
 import { usePdfParser } from './hooks/usePdfParser';
 import { useFileLoader } from './hooks/useFileLoader';
 import TracksDisplayTable from './components/TracksDisplayTable';
+import CookieConsentBanner from './components/CookieConsentBanner';
 import CalendarTable from './components/CalendarTable';
 import { setCookie, getCookie } from './utils/cookies';
 import { formatTrackType } from './utils/formatting';
@@ -20,7 +21,10 @@ const toTitleCase = (str) => {
 
 // Main App component
 const App = () => {
-    useGoogleAnalytics();
+    // Initialize consent state from cookie
+    const [hasConsent, setHasConsent] = useState(() => getCookie('cookie-consent-given') === 'true');
+
+    useGoogleAnalytics(hasConsent);
 
     const { parsePdf } = usePdfParser();
     const { loadFile } = useFileLoader();
@@ -127,16 +131,18 @@ const App = () => {
     // Effect to save selections to cookies
     // Save cookies for 90 days, about the length of an iRacing season.
     useEffect(() => {
-        setCookie('selectedSeriesIds', selectedSeriesIds, 90); 
-        setCookie('selectedLicenseLevels', selectedLicenseLevels, 90);
-        setCookie('selectedTrackTypes', selectedTrackTypes, 90);
-        setCookie('selectedDataSource', selectedDataSource, 90);
-        setCookie('isMinimizerActive', isMinimizerActive, 90);
-        setCookie('includeYearLongSeries', includeYearLongSeries, 90);
-        setCookie('isDarkMode', isDarkMode, 90);
-        setCookie('filterByRain', filterByRain, 90);
-        setCookie('selectedDisciplines', JSON.stringify(Array.from(selectedDisciplines)), 90);
-    }, [selectedSeriesIds, selectedLicenseLevels, selectedTrackTypes, selectedDataSource, isMinimizerActive, includeYearLongSeries, isDarkMode, filterByRain]);
+        if (hasConsent) {
+            setCookie('selectedSeriesIds', selectedSeriesIds, 90); 
+            setCookie('selectedLicenseLevels', selectedLicenseLevels, 90);
+            setCookie('selectedTrackTypes', selectedTrackTypes, 90);
+            setCookie('selectedDataSource', selectedDataSource, 90);
+            setCookie('isMinimizerActive', isMinimizerActive, 90);
+            setCookie('includeYearLongSeries', includeYearLongSeries, 90);
+            setCookie('isDarkMode', isDarkMode, 90);
+            setCookie('filterByRain', filterByRain, 90);
+            setCookie('selectedDisciplines', JSON.stringify(Array.from(selectedDisciplines)), 90);
+        }
+    }, [hasConsent, selectedSeriesIds, selectedLicenseLevels, selectedTrackTypes, selectedDataSource, isMinimizerActive, includeYearLongSeries, isDarkMode, filterByRain, selectedDisciplines]);
 
     useEffect(() => {
         const fetchScheduleManifest = async () => {
@@ -362,10 +368,8 @@ const App = () => {
 
     // Effect to automatically load data on initial page load
     useEffect(() => {
-        const dataSourceFromCookie = getCookie('selectedDataSource');
-        // Only auto-load if the data source was explicitly set by the user in a previous session (i.e., the cookie exists).
-        // This prevents auto-loading on a fresh visit or after a reset.
-        if (dataSourceFromCookie && selectedDataSource === dataSourceFromCookie && !initialLoadPerformed.current) {
+        // Auto-load if a data source is selected (from cookie or manifest default) and data hasn't been loaded yet.
+        if (selectedDataSource && !initialLoadPerformed.current) {
             initialLoadPerformed.current = true;
             handleLoadData({ clearSelections: false, isInitialAutoLoad: true });
         }
@@ -433,6 +437,10 @@ const App = () => {
 
         // Force a page reload to start fresh without any persisted state.
         window.location.reload();
+    }, []);
+
+    const handleAcceptConsent = useCallback(() => {
+        setHasConsent(true);
     }, []);
 
     const getCarsForWeek = useCallback((season, schedule) => {
@@ -590,6 +598,7 @@ const App = () => {
 
     return (
         <div className={`min-h-screen p-4 font-inter transition-colors duration-300 ${isDarkMode ? 'bg-neutral-950 text-neutral-100' : 'bg-gray-100 text-gray-800'}`}>
+            <CookieConsentBanner onAccept={handleAcceptConsent} />
             <style>{`::selection { background-color: #3b82f6; color: #ffffff; } .fade-enter { opacity: 0; } .fade-enter-active { opacity: 1; transition: opacity 200ms; } .fade-exit { opacity: 1; } .fade-exit-active { opacity: 0; transition: opacity 200ms; } .table-appear { opacity: 0; transform: translateY(20px); } .table-appear-active { opacity: 1; transform: translateY(0); transition: opacity 300ms, transform 300ms; } `}</style>
             <div className={`max-w-7xl mx-auto shadow-lg p-6 sm:p-8 transition-colors duration-300 ${isDarkMode ? 'bg-neutral-900' : 'bg-white'}`}>
                 <h1 className={`text-3xl sm:text-4xl font-bold text-center mb-8 relative ${isDarkMode ? 'text-neutral-100' : 'text-blue-700'}`}>
