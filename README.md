@@ -30,7 +30,8 @@ The Excel template also includes conditional cell formatting for Wet weeks, (cel
 2. The "features" when loading a PDF vs. a JSON are not the same, for example rain % only shows on PDF. For 2025S4 I focused on the PDF features but not every series has the same data.
 3. Series that change cars like Draft Masters and Ring Meister may not appear properly. Ring Meister should work with PDF for 2025S4
 4. Some listed tracks may have extra data on the end of it.
-4. CSV Export may be missing a few series when I counted them. Unsure which ones.
+5. CSV Export may be missing a few series when I counted them. Unsure which ones.
+6. Mobile interface could be better. 
 
 ## Background and AI Usage
 
