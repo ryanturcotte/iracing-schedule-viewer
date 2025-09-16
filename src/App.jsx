@@ -596,57 +596,36 @@ const App = () => {
         <div className={`min-h-screen p-4 font-inter transition-colors duration-300 ${isDarkMode ? 'bg-neutral-950 text-neutral-100' : 'bg-gray-100 text-gray-800'}`}>
             <CookieConsentBanner onAccept={handleAcceptConsent} />
             <style>{`::selection { background-color: #3b82f6; color: #ffffff; } .fade-enter { opacity: 0; } .fade-enter-active { opacity: 1; transition: opacity 200ms; } .fade-exit { opacity: 1; } .fade-exit-active { opacity: 0; transition: opacity 200ms; } .table-appear { opacity: 0; transform: translateY(20px); } .table-appear-active { opacity: 1; transform: translateY(0); transition: opacity 300ms, transform 300ms; } `}</style>
-            <div className={`max-w-7xl mx-auto shadow-lg p-6 sm:p-8 transition-colors duration-300 ${isDarkMode ? 'bg-neutral-900' : 'bg-white'}`}>
-                <h1 className={`text-3xl sm:text-4xl font-bold text-center mb-8 relative ${isDarkMode ? 'text-neutral-100' : 'text-blue-700'}`}>
-                    <button
-                        onClick={() => setShowDataSourceSelector(prev => !prev)}
-                        className={`absolute top-0 left-0 p-2 m-2 rounded-full shadow-md hover:shadow-lg transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-blue-500
-                        ${isDarkMode
-                            ? 'bg-neutral-800 text-neutral-200'
-                            : 'bg-gray-200 text-gray-800'
-                        }`
-                        }
-                        title="Toggle Data Source Selector"
-                    >
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="size-6">
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375" />
-                        </svg>
-                    </button>
-                    iRacing Schedule Viewer and Spreadsheet Creator
-                    <button
-                        onClick={() => setIsDarkMode(prevMode => !prevMode)}
-                        className={`absolute top-0 right-14 p-2 m-2 rounded-full shadow-md hover:shadow-lg transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-blue-500
-                        ${isDarkMode
-                            ? 'bg-neutral-800 text-neutral-200' // Dark mode active: dark button, light icon (sun) is light
-                            : 'bg-gray-200 text-gray-800' // Light mode active: light button, icon (moon) needs to be visible
-                        }`
-                        }
-                        title={isDarkMode ? "Switch to Light Mode" : "Switch to Dark Mode"}
-                    >
-                        {isDarkMode ? (
-                        // Sun icon for light mode (displayed when in dark mode, to toggle to light mode)
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="size-6">
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v2.25m6.364.386-1.591 1.591M21 12h-2.25m-.386 6.364-1.591-1.591M12 18.75V21m-4.773-4.227-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0Z" />
-                        </svg>
-                        ) : (
-                        // Moon icon for dark mode (displayed when in light mode, to toggle to dark mode)
-                        // Added explicit stroke="black" to ensure visibility in light mode.
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="black">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9 9 0 008.354-5.646z" />
-                        </svg>
-                        )}
-                    </button>
-                    <a
-                        href="https://github.com/ryanturcotte/iracing-schedule-viewer/#how-to-use"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className={`absolute top-0 right-0 p-2 m-2 rounded-full shadow-md hover:shadow-lg transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-blue-500 text-base
-                        ${isDarkMode ? 'bg-neutral-800 text-neutral-200' : 'bg-gray-200 text-gray-800'}`}
-                        title="How to use"
-                    >
-                        ❓
-                    </a>
-                </h1>
+            <div className={`max-w-7xl mx-auto shadow-lg p-4 sm:p-6 transition-colors duration-300 ${isDarkMode ? 'bg-neutral-900' : 'bg-white'}`}>
+                <div className="flex justify-between items-center mb-6 sm:mb-8">
+                    <div className="flex items-center gap-2">
+                        <button onClick={() => setShowDataSourceSelector(prev => !prev)} className={`p-2 rounded-full shadow-md hover:shadow-lg transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-blue-500 ${isDarkMode ? 'bg-neutral-800 text-neutral-200' : 'bg-gray-200 text-gray-800'}`} title="Toggle Data Source Selector">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="size-6">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375" />
+                            </svg>
+                        </button>
+                    </div>
+                    <h1 className={`text-xl sm:text-3xl font-bold text-center px-2 ${isDarkMode ? 'text-neutral-100' : 'text-blue-700'}`}>
+                        <span className="hidden sm:inline">iRacing Schedule Viewer and Spreadsheet Creator</span>
+                        <span className="sm:hidden">iRacing Schedule Viewer</span>
+                    </h1>
+                    <div className="flex items-center gap-2">
+                        <button onClick={() => setIsDarkMode(prevMode => !prevMode)} className={`p-2 rounded-full shadow-md hover:shadow-lg transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-blue-500 ${isDarkMode ? 'bg-neutral-800 text-neutral-200' : 'bg-gray-200 text-gray-800'}`} title={isDarkMode ? "Switch to Light Mode" : "Switch to Dark Mode"}>
+                            {isDarkMode ? (
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="size-6">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v2.25m6.364.386-1.591 1.591M21 12h-2.25m-.386 6.364-1.591-1.591M12 18.75V21m-4.773-4.227-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0Z" />
+                                </svg>
+                            ) : (
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="black">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9 9 0 008.354-5.646z" />
+                                </svg>
+                            )}
+                        </button>
+                        <a href="https://github.com/ryanturcotte/iracing-schedule-viewer/#how-to-use" target="_blank" rel="noopener noreferrer" className={`p-2 rounded-full shadow-md hover:shadow-lg transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-blue-500 text-base ${isDarkMode ? 'bg-neutral-800 text-neutral-200' : 'bg-gray-200 text-gray-800'}`} title="How to use">
+                            ❓
+                        </a>
+                    </div>
+                </div>
                 <TransitionGroup>
                     {showDataSourceSelector && (
                         <CSSTransition nodeRef={dataSourceRef} key="datasource-selector" timeout={200} classNames="fade">
@@ -728,7 +707,7 @@ const App = () => {
                                         <span className={`${isDarkMode ? 'text-neutral-100' : 'text-gray-700'}`}>Include Year-Long Series</span>
                                     </label>
                                     <button onClick={handleSurpriseMe} className={`ml-auto px-3 py-1.5 text-sm rounded-md shadow-sm ${isDarkMode ? 'bg-yellow-600 hover:bg-yellow-500 text-white' : 'bg-yellow-400 hover:bg-yellow-500 text-black'}`}>
-                                        🎁 Surprise Me
+                                        <span role="img" aria-label="gift">🎁</span> Surprise Me
                                     </button>
                                 </div>
                                 <div className="max-h-[60vh] overflow-y-auto">
@@ -791,7 +770,7 @@ const App = () => {
                                 {/* Filter Series Section */}
                                 <div className={`p-6 shadow-inner ${isDarkMode ? 'bg-neutral-800' : 'bg-blue-50'}`}>
                                     <h2 className={`text-2xl font-semibold mb-4 ${isDarkMode ? 'text-neutral-200' : 'text-blue-600'}`}>Filter Series</h2>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"> {/* Wrapper for side-by-side layout */}
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-4 lg:gap-8"> {/* Wrapper for side-by-side layout */}
                                          {/* License Level Filter Section */}
                                         <div className="flex-1 mb-6 md:mb-0">
                                             <h3 className={`text-lg font-medium mb-3 ${isDarkMode ? 'text-neutral-300' : 'text-gray-700'}`}>By License Level:</h3>
@@ -876,7 +855,7 @@ const App = () => {
                         <div className="flex flex-col sm:flex-row justify-center items-center gap-4 mb-8">
                             <button onClick={generateCalendarTable} className="w-full sm:flex-1 bg-purple-600 text-white font-bold py-3 px-6 rounded-lg shadow-lg hover:bg-purple-700">Generate Schedule</button>
                             <button onClick={handleReset} className="w-full sm:w-auto bg-red-600 text-white font-bold py-3 px-6 rounded-lg shadow-lg hover:bg-red-700 whitespace-nowrap">Reset</button>
-                            <div className="w-full sm:flex-1 flex flex-col sm:flex-row gap-4">
+                            <div className="w-full sm:flex-1 flex flex-col sm:flex-row gap-4 justify-center">
                                 <a href={`${import.meta.env.BASE_URL}excel template/Template.xlsx`} download="iRacingScheduleTemplate.xlsx" className="w-full sm:w-1/3 bg-green-500 text-white font-bold py-3 px-4 text-center rounded-lg shadow-lg hover:bg-green-600 whitespace-nowrap">
                                     Excel Template
                                 </a>
