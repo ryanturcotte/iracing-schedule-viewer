@@ -9,7 +9,8 @@ const PrintableSchedule = ({
     trackNameReplacements,
     trackConfigReplacements,
     carConfigReplacements,
-    applyCarListReplacements
+    applyCarListReplacements,
+    timeReplacements
 }) => {
     // --- Date Calculation Logic (Adapted and aligned with CalendarTable) ---
     const allSchedules = seriesData.flatMap(s => s.schedules);
@@ -111,7 +112,9 @@ const PrintableSchedule = ({
         if (!series) return { text: '', hasRain: false };
 
         if (rowType === 'frequency') {
-            return { text: series.race_frequency || '', hasRain: false };
+            const freqText = series.race_frequency || '';
+            const processedFreq = applyReplacements(freqText, timeReplacements);
+            return { text: processedFreq, hasRain: false };
         }
         if (rowType === 'license') {
             return { text: series.license_group_human_readable || '', hasRain: false };

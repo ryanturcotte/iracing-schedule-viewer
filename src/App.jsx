@@ -201,7 +201,6 @@ const App = () => {
         if (!weeklyCarsString || typeof weeklyCarsString !== 'string' || !isMinimizerActive) {
             return weeklyCarsString;
         }
-
         const multiCarDelimiterRegex = /\s*(\/|,|vs)\s*/;
 
         // Helper to create a canonical representation of a car list string.
@@ -311,6 +310,12 @@ const App = () => {
                 };
 
                 const carSets = schedulesWithDates.map(s => getCarsStringForSchedule(s));
+
+                // Debug Ring Meister cars
+                if (season.season_name.includes('Ring Meister')) {
+                    console.log('Ring Meister Cars:', carSets);
+                }
+
                 const firstCarSet = carSets[0];
                 // If we have car data, check if any week's cars differ from the first week's.
                 if (firstCarSet !== 'N/A') {
@@ -638,13 +643,14 @@ const App = () => {
                     trackConfigReplacements={trackConfigReplacements}
                     carConfigReplacements={carConfigReplacements}
                     applyCarListReplacements={applyCarListReplacements}
+                    timeReplacements={timeReplacements}
                 />
             </div>
         );
     }
 
     return (
-        <div className={`min-h-screen p-4 font-inter transition-colors duration-300 ${isDarkMode ? 'bg-neutral-950 text-neutral-100' : 'bg-gray-100 text-gray-800'}`}>
+        <div className={`min-h-screen p-4 font-inter transition-colors duration-300 overflow-x-hidden ${isDarkMode ? 'bg-neutral-950 text-neutral-100' : 'bg-gray-100 text-gray-800'}`}>
             <CookieConsentBanner onAccept={handleAcceptConsent} />
             <style>{`::selection { background-color: #3b82f6; color: #ffffff; } .fade-enter { opacity: 0; } .fade-enter-active { opacity: 1; transition: opacity 200ms; } .fade-exit { opacity: 1; } .fade-exit-active { opacity: 0; transition: opacity 200ms; } .table-appear { opacity: 0; transform: translateY(20px); } .table-appear-active { opacity: 1; transform: translateY(0); transition: opacity 300ms, transform 300ms; } `}</style>
             <div className={`max-w-7xl mx-auto shadow-lg p-4 sm:p-6 transition-colors duration-300 ${isDarkMode ? 'bg-neutral-900' : 'bg-white'}`}>
@@ -796,9 +802,9 @@ const App = () => {
                                                     >
                                                         <label className="flex items-center space-x-3 cursor-pointer">
                                                             <input type="checkbox" checked={selectedSeriesIds.has(seriesKey)} onChange={() => handleSeriesSelectionChange(seriesKey)} className="form-checkbox h-6 w-6 text-blue-600 rounded focus:ring-blue-500 shrink-0" />
-                                                            <span className={`flex items-center justify-between w-full text-lg font-bold ${isDarkMode ? 'text-neutral-100' : 'text-gray-800'}`}>
-                                                                <span className="flex items-center"> {/* Group name and rain icon */}
-                                                                    <span>{season.season_name || "Invalid Series Name"}</span>
+                                                            <span className={`flex items-center justify-between w-full text-lg font-bold min-w-0 ${isDarkMode ? 'text-neutral-100' : 'text-gray-800'}`}>
+                                                                <span className="flex items-center flex-wrap gap-y-1"> {/* Group name and rain icon */}
+                                                                    <span className="break-words">{season.season_name || "Invalid Series Name"}</span>
                                                                     {seriesHasRainMap.get(seriesKey) && <span className="ml-2 text-lg" role="img" aria-label="rain chance">🌧️</span>}
                                                                     {season.isDifferentCarEveryWeek && (
                                                                         <span className="ml-2" title="Same track, different car each week">
@@ -816,7 +822,7 @@ const App = () => {
                                                                         ))
                                                                     )}
                                                                 </span>
-                                                                {season.race_frequency && !season.isSameTrackEveryWeek && ( // Only show frequency if not same track every week
+                                                                {season.race_frequency && ( // Show frequency for all series
                                                                     <span className={`text-xs font-normal normal-case ${isDarkMode ? 'text-neutral-400' : 'text-gray-500'}`}>
                                                                         {applyReplacements(season.race_frequency, timeReplacements)}
                                                                     </span>

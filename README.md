@@ -31,6 +31,8 @@ The Excel template also includes conditional cell formatting for Wet weeks, (cel
 2. Number of series found does not match series to select.
 3. CSV Export may be missing a few series when I counted them. Unsure which ones.
 4. Haven't fully tested the web-based print view.
+5. Could add replacements for new tracks
+6. Some time replacements phrasing could be better.
 
 ## Background and AI Usage
 

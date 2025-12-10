@@ -87,7 +87,7 @@ const parseTableOfContents = async (pdf) => {
 const SERIES_NAME_REGEX = /^(.*?)(\s*-*\s*\d{4}\s+Season.*)$/i;
 const WEEK_REGEX = /^Week\s+(\d+)\s+\((\d{4}-\d{2}-\d{2})\)/;
 const LICENSE_REGEX = /^(Rookie|Class\s+[A-D])\s+\((\d)\.0\)\s*-->/;
-const FREQUENCY_REGEX = /^(Races\s+(?:every|at).*)$/i;
+const FREQUENCY_REGEX = /^(?:Race|Races|Hourly|Every|Events|Qualifying)[\s\W].*/i;
 
 /**
  * Checks if a line is a structural or informational line that should not be treated as a car or series name.
@@ -99,7 +99,7 @@ const isStructuralOrDetailLine = (line) => {
     if (!line || line.trim().length === 0) return true;
     // Regex for lines that define the structure of the schedule or series details
     const structuralPatterns = [
-        /^(Week\s+\d+|Rookie|Class\s+[A-D]|Races\s+(?:every|at)|Min entries)/i,
+        /^(Week\s+\d+|Rookie|Class\s+[A-D]|(?:Race|Races|Hourly|Every|Events|Qualifying)[\s\W]|Min entries)/i,
         /Penalty/i,
         /No incident/i,
         /DQ at/i,
@@ -263,21 +263,22 @@ const handleScheduleLine = (line, seriesData, currentSeriesRef, parsingState, se
     const weekNum = parseInt(weekMatch[1], 10) - 1;
     const startDateStr = weekMatch[2];
 
+    // Updated regex to catch weather/setup info even if temperature is missing
+    // Changed to use [\s\S]* to allow matching trailing content more flexibly
+    const weatherRegex = /([$]?\d+°F[\s\S]*)|((?:Constant weather|Rolling start|Standing start)[\s\S]*)/i;
+    let weatherText = '';
+    const weatherMatch = remainingLine.match(weatherRegex);
+    if (weatherMatch) {
+        weatherText = weatherMatch[0];
+        remainingLine = remainingLine.replace(weatherRegex, '').trim();
+    }
+
     const lapsRegex = /(\d+\s+(?:laps|mins))$/i;
     let laps = '';
     const lapsMatch = remainingLine.match(lapsRegex);
     if (lapsMatch) {
         laps = lapsMatch[1];
         remainingLine = remainingLine.replace(lapsRegex, '').trim();
-    }
-
-    // Updated regex to catch weather/setup info even if temperature is missing (e.g. "Rockingham... Constant weather")
-    const weatherRegex = /([$]?\d+°F[\s\S]+)|((?:Constant weather|Rolling start|Standing start)[\s\S]+)/i;
-    let weatherText = '';
-    const weatherMatch = remainingLine.match(weatherRegex);
-    if (weatherMatch) {
-        weatherText = weatherMatch[0];
-        remainingLine = remainingLine.replace(weatherRegex, '').trim();
     }
 
     let trackName = '';

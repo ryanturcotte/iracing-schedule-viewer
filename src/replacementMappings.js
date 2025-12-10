@@ -91,7 +91,8 @@ export const carConfigReplacements = [
     // rules will be applied to "Car A" and "Car B" individually.
 
     { original: "Porsche 911 GT3 Cup (992)", replacement: "Porsche Cup" },
-    { original: "Audi RS 3 LMS TCR, Honda Civic Type R TCR, Hyundai Elantra N TCR, Hyundai Veloster N TCR", replacement: "Touring Cars" },
+    { original: "Audi RS 3 LMS TCR, Hyundai Elantra N TCR, Honda Civic Type R TCR, Hyundai Veloster N TCR", replacement: "Touring Cars" },
+    { original: "Audi RS 3 LMS TCR, Hyundai Elantra N TCR Honda Civic Type R TCR, Hyundai Veloster N TCR", replacement: "Touring Cars" },
     { original: "Ford Fiesta RS WRC, Subaru WRX STI, VW Beetle", replacement: "Rally Cars" },
     { original: "Porsche 718 Cayman GT4 Clubsport MR McLaren 570S GT4 / Aston Martin Vantage GT4 Mercedes-AMG GT4 / BMW M4 G82 GT4 Evo Ford Mustang GT4", replacement: "GT4" },
     { original: "Aston Martin DBR9 GT1, Chevrolet Corvette C6.R GT1", replacement: "GT1" },
@@ -112,6 +113,10 @@ export const carConfigReplacements = [
 ];
 
 export const timeReplacements = [
+
+    // This should get the weird Ring Meister time to be more readable
+    { original: "Races on every hour on the hour | Qualifying every hour at :30", replacement: "Race at :00 Qual at :30" },
+
     { original: "Races every hour", replacement: "Hourly" },
     { original: "Races every 2 hours", replacement: "Every 2 Hrs" },
     // Add more time/frequency replacements here
@@ -122,8 +127,7 @@ export const timeReplacements = [
     { original: "minutes", replacement: "mins" },
     { original: "at :00 and :30", replacement: ":00/:30" },
     { original: "at :15 and :45", replacement: ":15/:45" },
-    { original: " after", replacement: "" },
+    { original: " after", replacement: "" }
 
-    // This should get the weird Ring Meister time to be more readable
-    { original: " | Qualifying every even 2 hours at :30", replacement: "" }
+
 ];
