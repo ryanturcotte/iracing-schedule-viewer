@@ -30,3 +30,4 @@ other/ring-meister-raw-pdfjs-debug.json
 public/excel template/~$Template.xlsx
 .env.development
 .env.production
+debug_scripts/

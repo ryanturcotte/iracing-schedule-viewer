@@ -9,8 +9,9 @@ This is a successor to the Powershell app at https://github.com/ryanturcotte/ira
 1. If updated, most current season schedule will auto-load. If you need to, click the database icon in top left to change.
 2. Scroll, filter, or search to list series and click the checkbox for series you want to run. Mouse over or tap (mobile) to get a quick review of the schedule.
 3. Click Generate Schedule to see view the series table.
-4. To export for printing, click Generate CSV to download the spreadsheet. 
-5. Download the Excel template to print your one-page calendar.
+4. To view a web-based printable version, click Print View.
+5. To export to Excel, click Generate CSV to download the spreadsheet. 
+6. Download the Excel template to print your one-page calendar.
 
 ## How to use Excel template
 
@@ -26,11 +27,10 @@ The Excel template also includes conditional cell formatting for Wet weeks, (cel
 
 ## Known issues
 
-1. Importing from PDF works but some series is missing data that others have.
-2. The "features" when loading a PDF vs. a JSON are not the same, for example rain % only shows on PDF. For 2025S4 I focused on the PDF features but not every series has the same data.
-3. Series that change cars like Draft Masters and Ring Meister may not appear properly. Ring Meister should work with PDF for 2025S4
-4. Some listed tracks may have extra data on the end of it.
-4. CSV Export may be missing a few series when I counted them. Unsure which ones.
+1. I've neglected the JSON import so some features may be missing there now.
+2. Number of series found does not match series to select.
+3. CSV Export may be missing a few series when I counted them. Unsure which ones.
+4. Haven't fully tested the web-based print view.
 
 ## Background and AI Usage
 
@@ -38,7 +38,7 @@ This app began as an experiment in AI/LLM code creation using Google Gemini Canv
 
 Getting it out of Canvas and into GitHub was a little more difficult because Gemini's instructions neglected to mention it was using Tailwind v3. (much confusion was had). But after running the Tailwind v4 upgrade, the original Canvas design was recreated. Continued prompting of Google Gemini Code Assist has gotten the app to it's current state.
 
-The majority of code was written by Google Gemini with the exception of the text minimization list and simple fixes that were easier to change by hand.
+The majority of code was written by Google Gemini with the exception of the text minimization list and simple fixes that were easier to change by hand. For 2026S1 (December 2025) I began to use Antigravity..
 
 ## How to run locally (needs testing)
 

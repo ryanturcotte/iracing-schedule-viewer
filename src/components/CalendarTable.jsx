@@ -2,8 +2,8 @@ import React from 'react';
 import { trackNameReplacements, trackConfigReplacements, carConfigReplacements } from '../replacementMappings';
 
 const CalendarTable = React.forwardRef(({ seriesData, isDarkMode, getCarsForWeek, applyReplacements, applyCarListReplacements, isMinimizerActive, timeReplacements: localTimeReplacements }, ref) => {
-    if (!seriesData || seriesData.length === 0) return null;        
-    
+    if (!seriesData || seriesData.length === 0) return null;
+
     const now = new Date(); // The current moment in time (UTC based).
 
     const allSchedules = seriesData.flatMap(s => s.schedules);
@@ -21,28 +21,20 @@ const CalendarTable = React.forwardRef(({ seriesData, isDarkMode, getCarsForWeek
         return d.getTime();
     };
 
-    // --- Determine dominant season length ---
+    // --- Determine max season length ---
     const scheduleLengths = seriesData.map(s => s.schedules.length);
-    const lengthCounts = scheduleLengths.reduce((acc, len) => {
-        // Only consider standard season lengths, ignore single-week events or very long series like year-long.
-        if (len > 1 && len <= 13) {
-            acc[len] = (acc[len] || 0) + 1;
-        }
-        return acc;
-    }, {});
-
-    let dominantSeasonLength = 12; // Default to 12
-    let maxCountForLength = 0;
-    // Find the most common length (e.g., 12 or 13)
-    for (const len in lengthCounts) {
-        if (lengthCounts[len] > maxCountForLength) {
-            maxCountForLength = lengthCounts[len];
-            dominantSeasonLength = parseInt(len, 10);
-        }
+    let maxSeasonLength = 12; // Default min length
+    if (scheduleLengths.length > 0) {
+        maxSeasonLength = Math.max(...scheduleLengths);
     }
+    // Ensure we show at least 12 weeks normally, unless everything is shorter? 
+    // Actually, if we have a 13 week season, we want 13. If we have only 6, maybe we still want 12?
+    // Let's stick to the plan: "Always show the full length of the longest selected series."
+    // But usually standard is 12. Let's ensure at least 12.
+    if (maxSeasonLength < 12) maxSeasonLength = 12;
 
-    // --- Determine season's start date, prioritizing series with the dominant length ---
-    let referenceSeries = seriesData.filter(s => s.schedules.length === dominantSeasonLength);
+    // --- Determine season's start date, prioritizing series with the max length ---
+    let referenceSeries = seriesData.filter(s => s.schedules.length === maxSeasonLength);
 
     // Fallback if no series match the dominant length (e.g., only 8-week series are selected).
     if (referenceSeries.length === 0) {
@@ -53,7 +45,7 @@ const CalendarTable = React.forwardRef(({ seriesData, isDarkMode, getCarsForWeek
         // If still nothing, use all selected data as a last resort.
         referenceSeries = seriesData;
     }
-    
+
     const referenceWeekStartTimes = referenceSeries.flatMap(s => s.schedules).map(s => getWeekStartDate(s.startDateObj)).filter(Boolean);
 
     // Find the most common start date from the reference series to determine the official season start.
@@ -61,7 +53,7 @@ const CalendarTable = React.forwardRef(({ seriesData, isDarkMode, getCarsForWeek
         acc[time] = (acc[time] || 0) + 1;
         return acc;
     }, {});
-    
+
     let seasonStartTimestamp = 0;
     let maxCount = 0;
     for (const time in dateCounts) {
@@ -70,7 +62,7 @@ const CalendarTable = React.forwardRef(({ seriesData, isDarkMode, getCarsForWeek
             seasonStartTimestamp = parseInt(time, 10);
         }
     }
-    
+
     // Now, get all unique weeks from ALL selected series to build the calendar rows.
     const allWeekStartTimes = allSchedules.map(s => getWeekStartDate(s.startDateObj)).filter(Boolean);
     const uniqueSortedWeekStartTimes = [...new Set(allWeekStartTimes)].sort((a, b) => a - b);
@@ -90,13 +82,13 @@ const CalendarTable = React.forwardRef(({ seriesData, isDarkMode, getCarsForWeek
         }
     }
 
-    const weekStartTimes = uniqueSortedWeekStartTimes.slice(startIndex, startIndex + dominantSeasonLength);
+    const weekStartTimes = uniqueSortedWeekStartTimes.slice(startIndex, startIndex + maxSeasonLength);
 
-    // --- Force calendar to have the dominant number of weeks ---
-    if (weekStartTimes.length < dominantSeasonLength && weekStartTimes.length > 0) {
+    // --- Force calendar to have the max number of weeks ---
+    if (weekStartTimes.length < maxSeasonLength && weekStartTimes.length > 0) {
         const lastWeekTime = weekStartTimes[weekStartTimes.length - 1];
         const oneWeekInMillis = 7 * 24 * 60 * 60 * 1000;
-        const weeksToAdd = dominantSeasonLength - weekStartTimes.length;
+        const weeksToAdd = maxSeasonLength - weekStartTimes.length;
         for (let i = 1; i <= weeksToAdd; i++) {
             weekStartTimes.push(lastWeekTime + (i * oneWeekInMillis));
         }
@@ -127,7 +119,7 @@ const CalendarTable = React.forwardRef(({ seriesData, isDarkMode, getCarsForWeek
                                         </div>
                                     )}
                                 </th>
-                            
+
                             ))}
                         </tr>
                     </thead>
@@ -135,79 +127,79 @@ const CalendarTable = React.forwardRef(({ seriesData, isDarkMode, getCarsForWeek
                         {calendarWeeks.map((week, i) => {
                             const isCurrentWeek = now >= week.start && now < week.end;
                             return (
-                            <tr key={i} className={`transition-colors duration-300 ${isCurrentWeek ? (isDarkMode ? 'bg-yellow-900/50' : 'bg-yellow-100') : ''}`}>
-                                <td className={`px-6 py-4 whitespace-nowrap text-sm font-medium ${isDarkMode ? 'text-neutral-100' : 'text-gray-900'} text-center`}>{i + 1}</td>
-                                <td className={`px-3 py-4 whitespace-nowrap text-sm ${isDarkMode ? 'text-neutral-300' : 'text-gray-600'}`}>
-                                    {week.start.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-                                </td>
-                                {seriesData.map(season => {
-                                    const schedule = season.schedules?.find(s => getWeekStartDate(s.startDateObj) === week.start.getTime());
-                                    let cellContentHtml = 'N/A';
-                                    if (schedule) {
-                                        let trackPart = '';
-                                        let configPart = '';
-                                        let weeklyCarsPart = ''; // For Draft/Ring Meister
+                                <tr key={i} className={`transition-colors duration-300 ${isCurrentWeek ? (isDarkMode ? 'bg-yellow-900/50' : 'bg-yellow-100') : ''}`}>
+                                    <td className={`px-6 py-4 whitespace-nowrap text-sm font-medium ${isDarkMode ? 'text-neutral-100' : 'text-gray-900'} text-center`}>{i + 1}</td>
+                                    <td className={`px-3 py-4 whitespace-nowrap text-sm ${isDarkMode ? 'text-neutral-300' : 'text-gray-600'}`}>
+                                        {week.start.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                                    </td>
+                                    {seriesData.map(season => {
+                                        const schedule = season.schedules?.find(s => getWeekStartDate(s.startDateObj) === week.start.getTime());
+                                        let cellContentHtml = '';
+                                        if (schedule) {
+                                            let trackPart = '';
+                                            let configPart = '';
+                                            let weeklyCarsPart = ''; // For Draft/Ring Meister
 
-                                        // 1. Extract parts
-                                        if (schedule.track && typeof schedule.track === 'object' && schedule.track.track_name) { // JSON
-                                            trackPart = schedule.track.track_name;
-                                            configPart = schedule.track.config_name || '';
-                                        } else if (schedule.track_name) { // PDF-like
-                                            const separator = " - ";
-                                            const separatorIndex = schedule.track_name.lastIndexOf(separator);
-                                            if (separatorIndex !== -1) {
-                                                trackPart = schedule.track_name.substring(0, separatorIndex);
-                                                configPart = schedule.track_name.substring(separatorIndex + separator.length);
-                                            } else {
-                                                trackPart = schedule.track_name;
-                                            }
-                                        }
-
-                                        const isRingMeister = season.season_name.includes('Ring Meister');
-                                        const isTrackPlusCar = season.season_name.includes('Draft Master') || season.season_name.includes('Outlaw Micro Showdown');
-                                        const isSpecialSeries = isRingMeister || isTrackPlusCar;
-                                        if (isSpecialSeries) {
-                                            weeklyCarsPart = getCarsForWeek(season, schedule);
-                                        }
-
-                                        // 2. Apply replacements (the function checks if minimizer is active)
-                                        trackPart = applyReplacements(trackPart, trackNameReplacements);
-                                        configPart = applyReplacements(configPart, trackConfigReplacements);
-
-                                        // 3. Construct display parts
-                                        let trackNameForDisplay;
-                                        let subTextForDisplay = '';
-
-                                        if (isSpecialSeries) {
-                                            const minimizedCars = applyCarListReplacements(weeklyCarsPart, carConfigReplacements);
-                                            if (isTrackPlusCar) {
-                                                trackNameForDisplay = trackPart; // Already minimized if active
-                                                if (configPart && configPart.toLowerCase() !== 'oval' && configPart.toLowerCase() !== 'n/a' && configPart.trim() !== '') {
-                                                    trackNameForDisplay += ` - ${configPart}`; // Already minimized if active
+                                            // 1. Extract parts
+                                            if (schedule.track && typeof schedule.track === 'object' && schedule.track.track_name) { // JSON
+                                                trackPart = schedule.track.track_name;
+                                                configPart = schedule.track.config_name || '';
+                                            } else if (schedule.track_name) { // PDF-like
+                                                const separator = " - ";
+                                                const separatorIndex = schedule.track_name.lastIndexOf(separator);
+                                                if (separatorIndex !== -1) {
+                                                    trackPart = schedule.track_name.substring(0, separatorIndex);
+                                                    configPart = schedule.track_name.substring(separatorIndex + separator.length);
+                                                } else {
+                                                    trackPart = schedule.track_name;
                                                 }
-                                                subTextForDisplay = minimizedCars; // Car type as subtext
-                                            } else if (isRingMeister) {
-                                                trackNameForDisplay = minimizedCars; // Only car type
                                             }
-                                        } else {
-                                            trackNameForDisplay = trackPart;
-                                            if (configPart && configPart.toLowerCase() !== 'oval' && configPart.toLowerCase() !== 'n/a' && configPart.trim() !== '') {
-                                                trackNameForDisplay += ` - ${configPart}`;
-                                            }
-                                            subTextForDisplay = schedule.laps ? `${schedule.laps}` : '';
-                                        }
 
-                                        const rainChance = schedule.rain_chance || schedule.track?.rain_chance || 0;
-                                        let trackDisplayHtml = `<span class="font-semibold">${trackNameForDisplay || 'N/A'}</span>`;
-                                        if (rainChance > 0) {
-                                            // Append the rain chance information instead of replacing the track name
-                                            trackDisplayHtml += ` <span class="text-blue-400 font-normal">(${rainChance}%)</span>`;
+                                            const isRingMeister = season.season_name.includes('Ring Meister');
+                                            const isTrackPlusCar = season.season_name.includes('Draft Master') || season.season_name.includes('Outlaw Micro Showdown');
+                                            const isSpecialSeries = isRingMeister || isTrackPlusCar;
+                                            if (isSpecialSeries) {
+                                                weeklyCarsPart = getCarsForWeek(season, schedule);
+                                            }
+
+                                            // 2. Apply replacements (the function checks if minimizer is active)
+                                            trackPart = applyReplacements(trackPart, trackNameReplacements);
+                                            configPart = applyReplacements(configPart, trackConfigReplacements);
+
+                                            // 3. Construct display parts
+                                            let trackNameForDisplay;
+                                            let subTextForDisplay = '';
+
+                                            if (isSpecialSeries) {
+                                                const minimizedCars = applyCarListReplacements(weeklyCarsPart, carConfigReplacements);
+                                                if (isTrackPlusCar) {
+                                                    trackNameForDisplay = trackPart; // Already minimized if active
+                                                    if (configPart && configPart.toLowerCase() !== 'oval' && configPart.toLowerCase() !== 'n/a' && configPart.trim() !== '') {
+                                                        trackNameForDisplay += ` - ${configPart}`; // Already minimized if active
+                                                    }
+                                                    subTextForDisplay = minimizedCars; // Car type as subtext
+                                                } else if (isRingMeister) {
+                                                    trackNameForDisplay = minimizedCars; // Only car type
+                                                }
+                                            } else {
+                                                trackNameForDisplay = trackPart;
+                                                if (configPart && configPart.toLowerCase() !== 'oval' && configPart.toLowerCase() !== 'n/a' && configPart.trim() !== '') {
+                                                    trackNameForDisplay += ` - ${configPart}`;
+                                                }
+                                                subTextForDisplay = schedule.laps ? `${schedule.laps}` : '';
+                                            }
+
+                                            const rainChance = schedule.rain_chance || schedule.track?.rain_chance || 0;
+                                            let trackDisplayHtml = `<span class="font-semibold">${trackNameForDisplay || 'N/A'}</span>`;
+                                            if (rainChance > 0) {
+                                                // Append the rain chance information instead of replacing the track name
+                                                trackDisplayHtml += ` <span class="text-blue-400 font-normal">(${rainChance}%)</span>`;
+                                            }
+                                            cellContentHtml = `<div class="flex flex-col">${trackDisplayHtml}<span class="text-xs ${isDarkMode ? 'text-neutral-400' : 'text-gray-600'}">${subTextForDisplay || ''}</span></div>`;
                                         }
-                                        cellContentHtml = `<div class="flex flex-col">${trackDisplayHtml}<span class="text-xs ${isDarkMode ? 'text-neutral-400' : 'text-gray-600'}">${subTextForDisplay || ''}</span></div>`;
-                                    }
-                                    return <td key={`${season.series_id || season.season_name}-${i}`} className={`px-3 py-4 whitespace-nowrap text-sm ${isDarkMode ? 'text-neutral-100' : 'text-gray-500'}`} dangerouslySetInnerHTML={{ __html: cellContentHtml }}></td>;
-                                })}
-                            </tr>
+                                        return <td key={`${season.series_id || season.season_name}-${i}`} className={`px-3 py-4 whitespace-nowrap text-sm ${isDarkMode ? 'text-neutral-100' : 'text-gray-500'}`} dangerouslySetInnerHTML={{ __html: cellContentHtml }}></td>;
+                                    })}
+                                </tr>
                             );
                         })}
                     </tbody>

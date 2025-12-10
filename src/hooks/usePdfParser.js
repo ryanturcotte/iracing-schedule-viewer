@@ -159,6 +159,7 @@ const handleNewSeriesLine = (line, seriesData, currentSeriesRef, seriesClassMap,
             season_name: cleanedName,
             license_group: tocInfo ? (licenseLetterToGroupMap[tocInfo.license] || 0) : 0,
             discipline: tocInfo ? tocInfo.discipline : 'Unknown',
+            track_types: [{ track_type: tocInfo ? tocInfo.discipline : 'Unknown' }],
             schedules: [],
             car_class: '', // New property for the car class string
             car_types: [], // Kept for backward compatibility if used elsewhere
@@ -249,6 +250,7 @@ const handleScheduleLine = (line, seriesData, currentSeriesRef, parsingState, se
                 season_name: potentialSeriesName.replace(/^\d+\.\s*/, ''),
                 license_group: tocInfo ? (licenseLetterToGroupMap[tocInfo.license] || 0) : 0,
                 discipline: tocInfo ? tocInfo.discipline : 'Unknown',
+                track_types: [{ track_type: tocInfo ? tocInfo.discipline : 'Unknown' }],
                 schedules: [], car_class: '', car_types: [], race_frequency: ''
             };
         }
@@ -269,11 +271,12 @@ const handleScheduleLine = (line, seriesData, currentSeriesRef, parsingState, se
         remainingLine = remainingLine.replace(lapsRegex, '').trim();
     }
 
-    const weatherRegex = /([$]?\d+°F[\s\S]+)/;
+    // Updated regex to catch weather/setup info even if temperature is missing (e.g. "Rockingham... Constant weather")
+    const weatherRegex = /([$]?\d+°F[\s\S]+)|((?:Constant weather|Rolling start|Standing start)[\s\S]+)/i;
     let weatherText = '';
     const weatherMatch = remainingLine.match(weatherRegex);
     if (weatherMatch) {
-        weatherText = weatherMatch[1];
+        weatherText = weatherMatch[0];
         remainingLine = remainingLine.replace(weatherRegex, '').trim();
     }
 
@@ -303,15 +306,27 @@ const handleScheduleLine = (line, seriesData, currentSeriesRef, parsingState, se
         const parts = remainingLine.split(/\s+-\s+/);
         if (parts.length >= 2) {
             const fullTrackName = parts.slice(0, -1).join(' - ').trim();
-            weeklyCars = parts.pop().trim();
+            let potentialCar = parts.pop().trim();
 
-            const separator = " - ";
-            const separatorIndex = fullTrackName.lastIndexOf(separator);
-            if (separatorIndex !== -1) {
-                trackName = fullTrackName.substring(0, separatorIndex).trim();
-                configName = fullTrackName.substring(separatorIndex + separator.length).trim();
-            } else {
+            // Check if the "car" is actually a config (common issue with Draft Master formatting)
+            const commonConfigs = ['oval', 'road course', 'roval', 'legends', 'short', 'gp', 'international', 'national', 'club', 'grand prix', 'moto'];
+
+            if (commonConfigs.includes(potentialCar.toLowerCase())) {
+                configName = potentialCar;
                 trackName = fullTrackName;
+                weeklyCars = null;
+                parsingState.expectCarForLastSchedule = true;
+            } else {
+                weeklyCars = potentialCar;
+
+                const separator = " - ";
+                const separatorIndex = fullTrackName.lastIndexOf(separator);
+                if (separatorIndex !== -1) {
+                    trackName = fullTrackName.substring(0, separatorIndex).trim();
+                    configName = fullTrackName.substring(separatorIndex + separator.length).trim();
+                } else {
+                    trackName = fullTrackName;
+                }
             }
         } else {
             trackName = remainingLine.trim();
@@ -374,14 +389,22 @@ const handleCarForScheduleLine = (line, currentSeries, parsingState, DEBUG_LOGGI
     if (!isStructuralOrDetailLine(line) && !line.match(SERIES_NAME_REGEX)) {
         let carName = line.trim();
 
+        // Pre-process to remove artifacts instead of truncating
+        carName = carName.replace(/Cautions disabled/gi, '');
+        carName = carName.replace(/start\s*\//gi, ' '); // "start /" -> " " to keep Chevy+Camaro together
+        carName = carName.replace(/start\b/g, ''); // Remove lower-case 'start' at end of word (Fordstart -> Ford)
+        carName = carName.replace(/Chevroletstart/gi, 'Chevrolet'); // Specific fix for PDF text extraction error
+        carName = carName.replace(/(\d{4})\s*(NASCAR)/g, '$1 / $2'); // Fix missing separator in Legends mashup (e.g. 1987NASCAR -> 1987 / NASCAR)
+
         // These keywords often appear after the car name on the same line.
         // We find the first one and truncate the string there.
         const structuralKeywords = [
-            'Detached qual', 'Rolling start', 'Fixed Setup', 'Open Setup', 
-            'Local', 'Qualifying', 'Race', 'Warmup', 'Practice', 'Entries', 
-            'Penalty', 'advisory cautions', 'Qual scrutiny', 'Strict'
+            'Detached qual', 'Rolling start', 'Fixed Setup', 'Open Setup',
+            'Local', 'Qualifying', 'Race', 'Warmup', 'Practice', 'Entries',
+            'Penalty', 'advisory cautions', 'Qual scrutiny', 'Strict',
+            'Cautions disabled'
         ];
-        
+
         const specialTimePattern = /\(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\s+\dx\)/;
         const timeMatch = carName.match(specialTimePattern);
         let splitIndex = -1;
@@ -389,7 +412,7 @@ const handleCarForScheduleLine = (line, currentSeries, parsingState, DEBUG_LOGGI
         if (timeMatch) {
             splitIndex = timeMatch.index;
         }
-        
+
         const lowerCarName = carName.toLowerCase();
         for (const keyword of structuralKeywords) {
             const index = lowerCarName.indexOf(keyword.toLowerCase());
@@ -401,7 +424,7 @@ const handleCarForScheduleLine = (line, currentSeries, parsingState, DEBUG_LOGGI
         if (splitIndex !== -1) {
             carName = carName.substring(0, splitIndex);
         }
-        
+
         // Clean up trailing characters that might be left over from the split.
         carName = carName.trim().replace(/[,-\s]+$/, '');
 
@@ -411,8 +434,11 @@ const handleCarForScheduleLine = (line, currentSeries, parsingState, DEBUG_LOGGI
         } else {
             schedule.weekly_cars = carName;
         }
-        // This line is a car part. Keep expecting more car parts on subsequent lines.
-        // The expectation will be reset by the next 'Week' or 'Series' line.
+
+        // Apply fix for missing separators in Legends mashup on the FULL string
+        // This handles cases where "1987" is on one line and "NASCAR" is on the next
+        schedule.weekly_cars = schedule.weekly_cars.replace(/(\d{4})\s*(NASCAR)/g, '$1 / $2');
+
         return true;
     }
 
@@ -440,24 +466,24 @@ const performPdfParsing = async (pdfFile, debug = false) => {
             throw new Error("Could not load PDF library. Please try again.");
         }
     }
-    
+
     const pdfjsLib = window['pdfjs-dist/build/pdf'];
     if (!pdfjsLib) throw new Error("PDF library failed to initialize even after loading.");
-    
+
     pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfJsVersion}/pdf.worker.min.js`;
-    
+
     const licenseLetterToGroupMap = { 'R': 1, 'D': 2, 'C': 3, 'B': 4, 'A': 5 };
 
     const arrayBuffer = await pdfFile.arrayBuffer();
     const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-    
+
     const seriesClassMap = await parseTableOfContents(pdf);
     if (DEBUG_LOGGING) downloadJson(Array.from(seriesClassMap.entries()), 'series-class-map.json');
 
     let seriesData = [];
     let allPageItems = [];
     let currentSeriesRef = { current: null };
-    
+
     const parsingState = {
         expectCarForLastSchedule: false,
         lastScheduleIndexForCar: -1,
@@ -477,7 +503,7 @@ const performPdfParsing = async (pdfFile, debug = false) => {
         if (DEBUG_LOGGING) {
             allPageItems.push({ page: i, items: content.items });
         }
-        
+
         const lines = content.items.reduce((acc, item) => {
             let line = acc.find(l => Math.abs(l.y - item.transform[5]) < 5);
             if (!line) {
@@ -524,7 +550,7 @@ const performPdfParsing = async (pdfFile, debug = false) => {
     if (currentSeriesRef.current) {
         seriesData.push(currentSeriesRef.current);
     }
-    
+
     if (DEBUG_LOGGING) {
         console.log('%c--- PDF Parsing Complete ---', 'color: blue; font-weight: bold;');
         console.log('Final seriesData:', seriesData);

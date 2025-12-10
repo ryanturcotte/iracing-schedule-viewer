@@ -6,6 +6,7 @@ import { useFileLoader } from './hooks/useFileLoader';
 import TracksDisplayTable from './components/TracksDisplayTable';
 import CookieConsentBanner from './components/CookieConsentBanner';
 import CalendarTable from './components/CalendarTable';
+import PrintableSchedule from './components/PrintableSchedule';
 import { setCookie, getCookie } from './utils/cookies';
 import { formatTrackType } from './utils/formatting';
 import { generateCsv as exportToCsv } from './utils/csvExporter';
@@ -33,7 +34,9 @@ const App = () => {
     const [fileDataMap, setFileDataMap] = useState(new Map());
     const [selectedDataSource, setSelectedDataSource] = useState(() => getCookie('selectedDataSource') ?? '');
     const [tableSeriesData, setTableSeriesData] = useState([]);
-    const [showCalendarTable, setShowCalendarTable] = useState(false);    const [showDataSourceSelector, setShowDataSourceSelector] = useState(false);
+    const [showCalendarTable, setShowCalendarTable] = useState(false);
+    const [showPrintView, setShowPrintView] = useState(false); // New state for printable view
+    const [showDataSourceSelector, setShowDataSourceSelector] = useState(false);
     const [message, setMessage] = useState('Please select a data source or upload a file.');
     const [isLoading, setIsLoading] = useState(false); // Start false, will be set true during loads
     const [dataLoaded, setDataLoaded] = useState(false);
@@ -57,7 +60,7 @@ const App = () => {
 
     const licenseLevelMap = { 1: 'Rookie', 2: 'D', 3: 'C', 4: 'B', 5: 'A', 0: 'Unknown' };
     const licenseColorMap = { 'Rookie': 'bg-red-500 text-white', 'D': 'bg-orange-500 text-white', 'C': 'bg-yellow-300 text-gray-800', 'B': 'bg-green-500 text-white', 'A': 'bg-blue-500 text-white', 'Unknown': 'bg-gray-400 text-white' };
-    
+
     const displayableLicenseLevels = useMemo(() => {
         const allLevels = Object.entries(licenseLevelMap);
         const hasUnknownSeries = seasonsData.some(s => s.license_group_human_readable === 'Unknown');
@@ -131,18 +134,17 @@ const App = () => {
     // Effect to save selections to cookies
     // Save cookies for 90 days, about the length of an iRacing season.
     useEffect(() => {
-        if (hasConsent) {
-            setCookie('selectedSeriesIds', selectedSeriesIds, 90); 
-            setCookie('selectedLicenseLevels', selectedLicenseLevels, 90);
-            setCookie('selectedTrackTypes', selectedTrackTypes, 90);
-            setCookie('selectedDataSource', selectedDataSource, 90);
-            setCookie('isMinimizerActive', isMinimizerActive, 90);
-            setCookie('includeYearLongSeries', includeYearLongSeries, 90);
-            setCookie('isDarkMode', isDarkMode, 90);
-            setCookie('filterByRain', filterByRain, 90);
-            setCookie('selectedDisciplines', JSON.stringify(Array.from(selectedDisciplines)), 90);
-        }
-    }, [hasConsent, selectedSeriesIds, selectedLicenseLevels, selectedTrackTypes, selectedDataSource, isMinimizerActive, includeYearLongSeries, isDarkMode, filterByRain, selectedDisciplines]);
+        // Save preferences regardless of consent status (strictly necessary for app functionality)
+        setCookie('selectedSeriesIds', selectedSeriesIds, 90);
+        setCookie('selectedLicenseLevels', selectedLicenseLevels, 90);
+        setCookie('selectedTrackTypes', selectedTrackTypes, 90);
+        setCookie('selectedDataSource', selectedDataSource, 90);
+        setCookie('isMinimizerActive', isMinimizerActive, 90);
+        setCookie('includeYearLongSeries', includeYearLongSeries, 90);
+        setCookie('isDarkMode', isDarkMode, 90);
+        setCookie('filterByRain', filterByRain, 90);
+        setCookie('selectedDisciplines', JSON.stringify(Array.from(selectedDisciplines)), 90);
+    }, [selectedSeriesIds, selectedLicenseLevels, selectedTrackTypes, selectedDataSource, isMinimizerActive, includeYearLongSeries, isDarkMode, filterByRain, selectedDisciplines]);
 
     useEffect(() => {
         const fetchScheduleManifest = async () => {
@@ -204,13 +206,16 @@ const App = () => {
 
         // Helper to create a canonical representation of a car list string.
         const createCanonical = (str, stripPunctuation = false) => {
-            let processedStr = str;
-            if (stripPunctuation) {
-                processedStr = processedStr.replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim();
-            }
-            return processedStr
-                .split(/\s*(?:\/|vs|,)\s*/)
-                .map(c => c.trim().toLowerCase())
+            // Split first to preserve structure for sorting
+            const parts = str.split(/\s*(?:\/|vs|,)\s*/);
+
+            return parts.map(c => {
+                let p = c;
+                if (stripPunctuation) {
+                    p = p.replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim();
+                }
+                return p.trim().toLowerCase();
+            })
                 .filter(Boolean)
                 .sort()
                 .join(', ');
@@ -320,7 +325,7 @@ const App = () => {
         setCarIdMap(newCarIdMap);
         return processedData;
     }, []);
-    
+
     const handleLoadData = useCallback(async (options = {}) => {
         const { clearSelections = true, isInitialAutoLoad = false } = options;
         if (!selectedDataSource) { setMessage("Please select a file to load."); return; }
@@ -393,10 +398,13 @@ const App = () => {
 
     // Effect to auto-generate calendar on initial load if selections exist
     useEffect(() => {
-        const hasGeneratedBefore = getCookie('hasGeneratedTable') === 'true';
-        if (dataLoaded && selectedSeriesIds.size > 0 && hasGeneratedBefore && !initialTableGenerationAttempted.current) {
-            const today = new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
-            generateCalendarTable(`Calendar table restored from saved selections on ${today}.`);
+        if (dataLoaded && !initialTableGenerationAttempted.current) {
+            const hasGeneratedBefore = getCookie('hasGeneratedTable') === 'true';
+            if (selectedSeriesIds.size > 0 && hasGeneratedBefore) {
+                const today = new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
+                generateCalendarTable(`Calendar table restored from saved selections on ${today}.`);
+            }
+            // Mark as attempted so we don't try again (preventing auto-open on manual selection)
             initialTableGenerationAttempted.current = true;
         }
     }, [dataLoaded, selectedSeriesIds.size, generateCalendarTable]);
@@ -592,6 +600,49 @@ const App = () => {
         setMessage(result.message);
     }, [seasonsData, selectedSeriesIds, isMinimizerActive, getCarsForWeek, applyCarListReplacements]);
 
+    const handlePrintViewToggle = useCallback(() => {
+        setShowPrintView(prev => !prev);
+    }, []);
+
+    if (showPrintView) {
+        // Filter `seasonsData` based on `selectedSeriesIds` to pass only selected series to the printable view.
+        // We can reuse `tableSeriesData` if the user has generated the table, OR we can just filter explicitly here.
+        // Explicit filtering ensures it reflects current selections even if "Generate Table" wasn't clicked lately.
+        const printData = seasonsData.filter(season => selectedSeriesIds.has(season.series_id || season.season_name));
+
+        return (
+            <div className="bg-white min-h-screen text-black overflow-x-auto">
+                <div className="p-4 print:hidden flex justify-between items-center bg-gray-200 border-b border-gray-400">
+                    <h1 className="text-xl font-bold">Printable View</h1>
+                    <div className="flex gap-4">
+                        <button
+                            onClick={() => window.print()}
+                            className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+                        >
+                            Print / Save as PDF
+                        </button>
+                        <button
+                            onClick={handlePrintViewToggle}
+                            className="bg-gray-600 text-white px-4 py-2 rounded hover:bg-gray-700"
+                        >
+                            Back to App
+                        </button>
+                    </div>
+                </div>
+                <PrintableSchedule
+                    seriesData={printData}
+                    getCarsForWeek={getCarsForWeek}
+                    applyReplacements={applyReplacements}
+                    isMinimizerActive={isMinimizerActive}
+                    trackNameReplacements={trackNameReplacements}
+                    trackConfigReplacements={trackConfigReplacements}
+                    carConfigReplacements={carConfigReplacements}
+                    applyCarListReplacements={applyCarListReplacements}
+                />
+            </div>
+        );
+    }
+
     return (
         <div className={`min-h-screen p-4 font-inter transition-colors duration-300 ${isDarkMode ? 'bg-neutral-950 text-neutral-100' : 'bg-gray-100 text-gray-800'}`}>
             <CookieConsentBanner onAccept={handleAcceptConsent} />
@@ -655,24 +706,36 @@ const App = () => {
                 </TransitionGroup>
 
                 <TransitionGroup>
-                  {message && ( 
-                    <CSSTransition nodeRef={messageRef} key="message-transition" timeout={200} classNames="fade">
-                        <div ref={messageRef} className={`mb-6 p-3 shadow-xs text-center ${isDarkMode ? 'bg-blue-900' : 'bg-blue-100 text-blue-800'} rounded-md`}>{message}</div>
-                    </CSSTransition> 
-                  )}
+                    {message && (
+                        <CSSTransition nodeRef={messageRef} key="message-transition" timeout={200} classNames="fade">
+                            <div ref={messageRef} className={`mb-6 p-3 shadow-xs text-center ${isDarkMode ? 'bg-blue-900' : 'bg-blue-100 text-blue-800'} rounded-md`}>{message}</div>
+                        </CSSTransition>
+                    )}
                 </TransitionGroup>
 
                 {/* Calendar table is now here at the top */}
                 <TransitionGroup>
-                  {showCalendarTable && tableSeriesData.length > 0 && (
-                    <CSSTransition nodeRef={calendarTableRef} key="calendar-table-transition" timeout={500} classNames="table-appear" appear>
-                      <CalendarTable ref={calendarTableRef} seriesData={tableSeriesData} isDarkMode={isDarkMode} getCarsForWeek={getCarsForWeek} applyReplacements={applyReplacements} isMinimizerActive={isMinimizerActive} timeReplacements={timeReplacements} applyCarListReplacements={applyCarListReplacements} carConfigReplacements={carConfigReplacements} />
-                    </CSSTransition>
-                  )}
+                    {showCalendarTable && tableSeriesData.length > 0 && (
+                        <CSSTransition nodeRef={calendarTableRef} key="calendar-table-transition" timeout={500} classNames="table-appear" appear>
+                            <CalendarTable ref={calendarTableRef} seriesData={tableSeriesData} isDarkMode={isDarkMode} getCarsForWeek={getCarsForWeek} applyReplacements={applyReplacements} isMinimizerActive={isMinimizerActive} timeReplacements={timeReplacements} applyCarListReplacements={applyCarListReplacements} carConfigReplacements={carConfigReplacements} />
+                        </CSSTransition>
+                    )}
                 </TransitionGroup>
 
                 {dataLoaded && !isLoading && (
                     <>
+                        {/* Action Buttons */}
+                        <div className="flex flex-col sm:flex-row justify-center items-center gap-4 mb-8">
+                            <button onClick={generateCalendarTable} className="w-full sm:flex-1 bg-purple-600 text-white font-bold py-3 px-6 rounded-lg shadow-lg hover:bg-purple-700">Generate Schedule</button>
+                            <button onClick={handleReset} className="w-full sm:w-auto bg-red-600 text-white font-bold py-3 px-6 rounded-lg shadow-lg hover:bg-red-700 whitespace-nowrap">Reset</button>
+                            <div className="w-full sm:flex-1 flex flex-col sm:flex-row gap-4 justify-center">
+                                <a href={`${import.meta.env.BASE_URL}excel template/Template.xlsx`} download="iRacingScheduleTemplate.xlsx" className="w-full sm:w-1/3 bg-green-500 text-white font-bold py-3 px-4 text-center rounded-lg shadow-lg hover:bg-green-600 whitespace-nowrap">
+                                    Excel Template
+                                </a>
+                                <button onClick={handleGenerateCsv} className="w-full sm:w-2/3 bg-green-600 text-white font-bold py-3 px-6 rounded-lg shadow-lg hover:bg-green-700">Generate CSV</button>
+                            </div>
+                        </div>
+
                         {/* Container for Series List and Tracks Table */}
                         <div className="flex flex-col md:flex-row gap-6 mb-8">
                             {/* Available Series Section */}
@@ -685,7 +748,7 @@ const App = () => {
                                 </div>
                                 <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mb-4 border-b pb-4 ${isDarkMode ? 'border-neutral-700' : 'border-gray-200'}">
                                     <label className="flex items-center space-x-2 cursor-pointer">
-                                        <input type="checkbox" checked={allSeriesSelected} onChange={handleSelectAllChange} className="form-checkbox h-5 w-5 text-blue-600 rounded-sm focus:ring-blue-500"/>
+                                        <input type="checkbox" checked={allSeriesSelected} onChange={handleSelectAllChange} className="form-checkbox h-5 w-5 text-blue-600 rounded-sm focus:ring-blue-500" />
                                         <span className={`${isDarkMode ? 'text-neutral-100' : 'text-gray-700'}`}>Select All</span>
                                     </label>
                                     <label className="flex items-center space-x-2 cursor-pointer">
@@ -709,6 +772,9 @@ const App = () => {
                                     <button onClick={handleSurpriseMe} className={`ml-auto px-3 py-1.5 text-sm rounded-md shadow-sm ${isDarkMode ? 'bg-yellow-600 hover:bg-yellow-500 text-white' : 'bg-yellow-400 hover:bg-yellow-500 text-black'}`}>
                                         <span role="img" aria-label="gift">🎁</span> Surprise Me
                                     </button>
+                                    <button onClick={handlePrintViewToggle} className={`px-3 py-1.5 text-sm rounded-md shadow-sm ${isDarkMode ? 'bg-indigo-600 hover:bg-indigo-500 text-white' : 'bg-indigo-500 hover:bg-indigo-600 text-white'}`}>
+                                        <span role="img" aria-label="print">🖨️</span> Print View
+                                    </button>
                                 </div>
                                 <div className="max-h-[60vh] overflow-y-auto">
                                     <TransitionGroup>
@@ -720,8 +786,8 @@ const App = () => {
 
                                             return (
                                                 <CSSTransition key={seriesKey} nodeRef={nodeRef} timeout={300} classNames="fade">
-                                                    <div 
-                                                        ref={nodeRef} 
+                                                    <div
+                                                        ref={nodeRef}
                                                         className={`p-4 mb-2 rounded-md shadow-md transition-colors ${selectedSeriesIds.has(seriesKey) ? (isDarkMode ? 'bg-green-800 hover:bg-green-700' : 'bg-green-100 hover:bg-green-200') : (isDarkMode ? 'bg-neutral-900 hover:bg-neutral-700' : 'bg-white hover:bg-gray-100')}`}
                                                         onMouseEnter={(e) => handleSeriesMouseEnter(e, seriesKey)}
                                                         onMouseLeave={handleSeriesMouseLeave}
@@ -771,16 +837,14 @@ const App = () => {
                                 <div className={`p-6 shadow-inner ${isDarkMode ? 'bg-neutral-800' : 'bg-blue-50'}`}>
                                     <h2 className={`text-2xl font-semibold mb-4 ${isDarkMode ? 'text-neutral-200' : 'text-blue-600'}`}>Filter Series</h2>
                                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-4 lg:gap-8"> {/* Wrapper for side-by-side layout */}
-                                         {/* License Level Filter Section */}
+                                        {/* License Level Filter Section */}
                                         <div className="flex-1 mb-6 md:mb-0">
                                             <h3 className={`text-lg font-medium mb-3 ${isDarkMode ? 'text-neutral-300' : 'text-gray-700'}`}>By License Level:</h3>
                                             <div className="flex flex-col items-start gap-2">
                                                 {displayableLicenseLevels.map(([id, level]) => (
-                                                    <label key={id} className={`flex items-center space-x-2 cursor-pointer px-4 py-2 rounded-full shadow-xs transition-all ${
-                                                        licenseColorMap[level]
-                                                    } ${
-                                                        selectedLicenseLevels.has(level) ? 'ring-2 ring-offset-2 ring-offset-transparent ring-white' : 'opacity-80 hover:opacity-100'
-                                                    }`}><input type="checkbox" checked={selectedLicenseLevels.has(level)} onChange={() => handleLicenseLevelChange(level)} className="form-checkbox h-5 w-5" /><span>{level}</span></label>
+                                                    <label key={id} className={`flex items-center space-x-2 cursor-pointer px-4 py-2 rounded-full shadow-xs transition-all ${licenseColorMap[level]
+                                                        } ${selectedLicenseLevels.has(level) ? 'ring-2 ring-offset-2 ring-offset-transparent ring-white' : 'opacity-80 hover:opacity-100'
+                                                        }`}><input type="checkbox" checked={selectedLicenseLevels.has(level)} onChange={() => handleLicenseLevelChange(level)} className="form-checkbox h-5 w-5" /><span>{level}</span></label>
                                                 ))}
                                             </div>
                                         </div>
@@ -790,12 +854,11 @@ const App = () => {
                                             <div className="flex-1 mb-6 md:mb-0">
                                                 <h3 className={`text-lg font-medium mb-3 ${isDarkMode ? 'text-neutral-300' : 'text-gray-700'}`}>By Track Type:</h3>
                                                 <div className="flex flex-col items-start gap-2">
-                                                {availableTrackTypes.map((type) => (
-                                                        <label key={type} className={`flex items-center space-x-2 cursor-pointer px-4 py-2 rounded-full shadow-xs transition-all text-sm ${
-                                                            selectedTrackTypes.has(type)
-                                                                ? (isDarkMode ? 'bg-blue-600 text-white ring-2 ring-offset-2 ring-offset-transparent ring-white' : 'bg-blue-500 text-white ring-2 ring-offset-2 ring-offset-transparent ring-white')
-                                                                : (isDarkMode ? 'bg-neutral-600 text-neutral-200 opacity-80 hover:opacity-100' : 'bg-gray-300 text-gray-800 opacity-80 hover:opacity-100')
-                                                        }`}>
+                                                    {availableTrackTypes.map((type) => (
+                                                        <label key={type} className={`flex items-center space-x-2 cursor-pointer px-4 py-2 rounded-full shadow-xs transition-all text-sm ${selectedTrackTypes.has(type)
+                                                            ? (isDarkMode ? 'bg-blue-600 text-white ring-2 ring-offset-2 ring-offset-transparent ring-white' : 'bg-blue-500 text-white ring-2 ring-offset-2 ring-offset-transparent ring-white')
+                                                            : (isDarkMode ? 'bg-neutral-600 text-neutral-200 opacity-80 hover:opacity-100' : 'bg-gray-300 text-gray-800 opacity-80 hover:opacity-100')
+                                                            }`}>
                                                             <input type="checkbox" checked={selectedTrackTypes.has(type)} onChange={() => handleTrackTypeChange(type)} className="form-checkbox h-5 w-5" />
                                                             <span>{formatTrackType(type)}</span>
                                                         </label>
@@ -810,11 +873,10 @@ const App = () => {
                                                 <h3 className={`text-lg font-medium mb-3 ${isDarkMode ? 'text-neutral-300' : 'text-gray-700'}`}>By Discipline:</h3>
                                                 <div className="flex flex-col items-start gap-2">
                                                     {availableDisciplines.map((discipline) => (
-                                                        <label key={discipline} className={`flex items-center space-x-2 cursor-pointer px-4 py-2 rounded-full shadow-xs transition-all text-sm ${
-                                                            selectedDisciplines.has(discipline)
-                                                                ? (isDarkMode ? 'bg-purple-600 text-white ring-2 ring-offset-2 ring-offset-transparent ring-white' : 'bg-purple-500 text-white ring-2 ring-offset-2 ring-offset-transparent ring-white')
-                                                                : (isDarkMode ? 'bg-neutral-600 text-neutral-200 opacity-80 hover:opacity-100' : 'bg-gray-300 text-gray-800 opacity-80 hover:opacity-100')
-                                                        }`}>
+                                                        <label key={discipline} className={`flex items-center space-x-2 cursor-pointer px-4 py-2 rounded-full shadow-xs transition-all text-sm ${selectedDisciplines.has(discipline)
+                                                            ? (isDarkMode ? 'bg-purple-600 text-white ring-2 ring-offset-2 ring-offset-transparent ring-white' : 'bg-purple-500 text-white ring-2 ring-offset-2 ring-offset-transparent ring-white')
+                                                            : (isDarkMode ? 'bg-neutral-600 text-neutral-200 opacity-80 hover:opacity-100' : 'bg-gray-300 text-gray-800 opacity-80 hover:opacity-100')
+                                                            }`}>
                                                             <input type="checkbox" checked={selectedDisciplines.has(discipline)} onChange={() => handleDisciplineChange(discipline)} className="form-checkbox h-5 w-5" />
                                                             <span>{toTitleCase(discipline)}</span>
                                                         </label>
@@ -827,11 +889,10 @@ const App = () => {
                                         <div className="flex-1 mb-6 md:mb-0">
                                             <h3 className={`text-lg font-medium mb-3 ${isDarkMode ? 'text-neutral-300' : 'text-gray-700'}`}>By Weather:</h3>
                                             <div className="flex flex-col items-start gap-2">
-                                                <label className={`flex items-center space-x-2 cursor-pointer px-4 py-2 rounded-full shadow-xs transition-all text-sm ${
-                                                    filterByRain
-                                                        ? (isDarkMode ? 'bg-blue-600 text-white ring-2 ring-offset-2 ring-offset-transparent ring-white' : 'bg-blue-500 text-white ring-2 ring-offset-2 ring-offset-transparent ring-white')
-                                                        : (isDarkMode ? 'bg-neutral-600 text-neutral-200 opacity-80 hover:opacity-100' : 'bg-gray-300 text-gray-800 opacity-80 hover:opacity-100')
-                                                }`}>
+                                                <label className={`flex items-center space-x-2 cursor-pointer px-4 py-2 rounded-full shadow-xs transition-all text-sm ${filterByRain
+                                                    ? (isDarkMode ? 'bg-blue-600 text-white ring-2 ring-offset-2 ring-offset-transparent ring-white' : 'bg-blue-500 text-white ring-2 ring-offset-2 ring-offset-transparent ring-white')
+                                                    : (isDarkMode ? 'bg-neutral-600 text-neutral-200 opacity-80 hover:opacity-100' : 'bg-gray-300 text-gray-800 opacity-80 hover:opacity-100')
+                                                    }`}>
                                                     <input type="checkbox" checked={filterByRain} onChange={() => setFilterByRain(prev => !prev)} className="form-checkbox h-5 w-5" />
                                                     <span>Has Rain</span>
                                                 </label>
@@ -852,26 +913,17 @@ const App = () => {
                                 )}
                             </div>
                         </div>
-                        <div className="flex flex-col sm:flex-row justify-center items-center gap-4 mb-8">
-                            <button onClick={generateCalendarTable} className="w-full sm:flex-1 bg-purple-600 text-white font-bold py-3 px-6 rounded-lg shadow-lg hover:bg-purple-700">Generate Schedule</button>
-                            <button onClick={handleReset} className="w-full sm:w-auto bg-red-600 text-white font-bold py-3 px-6 rounded-lg shadow-lg hover:bg-red-700 whitespace-nowrap">Reset</button>
-                            <div className="w-full sm:flex-1 flex flex-col sm:flex-row gap-4 justify-center">
-                                <a href={`${import.meta.env.BASE_URL}excel template/Template.xlsx`} download="iRacingScheduleTemplate.xlsx" className="w-full sm:w-1/3 bg-green-500 text-white font-bold py-3 px-4 text-center rounded-lg shadow-lg hover:bg-green-600 whitespace-nowrap">
-                                    Excel Template
-                                </a>
-                                <button onClick={handleGenerateCsv} className="w-full sm:w-2/3 bg-green-600 text-white font-bold py-3 px-6 rounded-lg shadow-lg hover:bg-green-700">Generate CSV</button>
-                            </div>
-                        </div>
+
                     </>
-                 )}
-                 
+                )}
+
                 {/* Track Tooltip */}
                 {hoveredSeriesTracks && hoveredSeriesTracks.tracks.length > 0 && (
                     <div
                         style={{ top: hoveredSeriesTracks.position.top + 8, left: hoveredSeriesTracks.position.left }}
                         className={`absolute z-50 p-3 rounded-md shadow-xl text-sm w-auto max-w-sm
                                     ${isDarkMode ? 'bg-neutral-700 border border-neutral-600 text-neutral-100'
-                                                : 'bg-white border border-gray-300 text-gray-800'}`}
+                                : 'bg-white border border-gray-300 text-gray-800'}`}
                     >
                         <h4 className="font-semibold mb-1 text-sm">Tracks for this series:</h4>
                         <ul className="max-h-72 overflow-y-auto space-y-0.5"> {/* Increased max-h for more lines, width increased via max-w-sm */}
