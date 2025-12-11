@@ -747,7 +747,7 @@ const App = () => {
                             {/* Available Series Section */}
                             <div className={`md:w-2/3 p-6 shadow-inner ${isDarkMode ? 'bg-neutral-800' : 'bg-gray-50'}`}>
                                 <div className="flex justify-between items-center mb-2">
-                                    <h2 className={`text-2xl font-semibold ${isDarkMode ? 'text-neutral-200' : 'text-gray-700'}`}>Select Series ({seriesToDisplay.length})</h2>
+                                    <h2 className={`text-2xl font-semibold ${isDarkMode ? 'text-neutral-200' : 'text-gray-700'}`}>Select Series ({selectedSeriesIds.size}/{seriesToDisplay.length})</h2>
                                     <div className="flex items-center">
                                         <input type="text" placeholder="Search..." value={searchTerm} onChange={handleSearchChange} className={`px-3 py-1.5 border rounded-md shadow-xs transition-all ${isDarkMode ? 'bg-neutral-700 border-neutral-600' : 'bg-white border-gray-300'}`} />
                                     </div>
