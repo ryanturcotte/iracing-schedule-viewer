@@ -31,3 +31,4 @@ public/excel template/~$Template.xlsx
 .env.development
 .env.production
 debug_scripts/
+other/

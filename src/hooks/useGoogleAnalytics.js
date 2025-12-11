@@ -24,7 +24,9 @@ export const useGoogleAnalytics = (hasConsent) => {
           window.dataLayer = window.dataLayer || [];
           function gtag(){dataLayer.push(arguments);}
           gtag('js', new Date());
-          gtag('config', '${trackingId}');
+          gtag('config', '${trackingId}', {
+            'cookie_domain': window.location.hostname
+          });
         `;
 
         document.head.appendChild(script1);

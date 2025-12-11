@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <!-- Calendar Body (White with border) -->
+  <rect x="10" y="10" width="80" height="80" rx="10" fill="white" stroke="#333" stroke-width="4" />
+  
+  <!-- Calendar Header (Red bar) -->
+  <path d="M10 20 Q10 10 20 10 L80 10 Q90 10 90 20 L90 35 L10 35 Z" fill="#DC2626" stroke="#333" stroke-width="4" />
+  
+  <!-- Checkered Flag Overlay (centered) -->
+  <text x="50" y="65" font-size="50" text-anchor="middle" dominant-baseline="central">🏁</text>
+</svg>

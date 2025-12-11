@@ -158,11 +158,14 @@ const App = () => {
                 }
                 const manifestData = await response.json();
                 if (Array.isArray(manifestData)) {
+                    // Sort manifest data descending to ensure newest is first (assuming 'Season X' or 'YYYY' format works with string sort)
+                    manifestData.sort((a, b) => b.localeCompare(a));
                     setAvailableFiles(manifestData);
                     if (manifestData.length > 0) {
-                        // If no data source is set from a cookie, default to the first one from the manifest.
+                        // If no data source is set from a cookie, default to the first PDF from the manifest, or just the first file.
                         if (!getCookie('selectedDataSource')) {
-                            setSelectedDataSource(manifestData[0]);
+                            const defaultFile = manifestData.find(f => f.toLowerCase().endsWith('.pdf')) || manifestData[0];
+                            setSelectedDataSource(defaultFile);
                         }
                         setMessage('Please select a data source or upload a file.');
                     } else {
@@ -310,11 +313,6 @@ const App = () => {
                 };
 
                 const carSets = schedulesWithDates.map(s => getCarsStringForSchedule(s));
-
-                // Debug Ring Meister cars
-                if (season.season_name.includes('Ring Meister')) {
-                    console.log('Ring Meister Cars:', carSets);
-                }
 
                 const firstCarSet = carSets[0];
                 // If we have car data, check if any week's cars differ from the first week's.
