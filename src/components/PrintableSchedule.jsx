@@ -10,7 +10,11 @@ const PrintableSchedule = ({
     trackConfigReplacements,
     carConfigReplacements,
     applyCarListReplacements,
-    timeReplacements
+    timeReplacements,
+    showLegend,
+    showDates,
+    paginate,
+    currentPage = 0
 }) => {
     // --- Date Calculation Logic (Adapted and aligned with CalendarTable) ---
     const allSchedules = seriesData.flatMap(s => s.schedules);
@@ -77,8 +81,6 @@ const PrintableSchedule = ({
         }
     } else if (weekStartTimes.length === 0 && maxSeasonLength > 0) {
         // Fallback if no dates at all (e.g. data load issue), just generate placeholder weeks
-        // Use current week as start? Or just unknown.
-        // Let's just create empty placeholders
         for (let i = 0; i < maxSeasonLength; i++) {
             weekStartTimes.push(0); // special marker for unknown
         }
@@ -97,15 +99,19 @@ const PrintableSchedule = ({
     });
 
     // 1. Prepare Data Rows
-    const rows = [
-        { label: 'Time', type: 'frequency' },
-        { label: 'License', type: 'license' },
-        { label: 'Style', type: 'style' },
-        { label: 'Series', type: 'name' }, // Headers for dates go here
-    ];
-    for (let i = 0; i < weekDates.length; i++) {
-        rows.push({ label: `Week ${i + 1}`, type: 'week', weekIndex: i });
-    }
+    const prepareRows = () => {
+        const rows = [
+            { label: 'Time', type: 'frequency' },
+            { label: 'License', type: 'license' },
+            { label: 'Style', type: 'style' },
+            { label: 'Series', type: 'name' }, // Headers for dates go here
+        ];
+        for (let i = 0; i < weekDates.length; i++) {
+            rows.push({ label: `Week ${i + 1}`, type: 'week', weekIndex: i });
+        }
+        return rows;
+    };
+    const rows = prepareRows();
 
     // Helper to get cell content and rain status for a specific series and row type
     const getCellContent = (series, rowType, weekIndex) => {
@@ -128,7 +134,7 @@ const PrintableSchedule = ({
         if (rowType === 'week') {
             // Find schedule by DATE, not index
             const weekTimestamp = weekDates[weekIndex]?.timestamp;
-            if (!weekTimestamp) return { text: '', hasRain: false }; // Should not happen if logic is correct
+            if (!weekTimestamp) return { text: '', hasRain: false };
 
             const schedule = series.schedules.find(s => getWeekStartDate(s.startDateObj) === weekTimestamp);
 
@@ -195,13 +201,27 @@ const PrintableSchedule = ({
         return { text: '', hasRain: false };
     };
 
+    // --- Pagination Logic ---
+    const MAX_COLS_PER_PAGE = 8;
+    // If not paginate, just one chunk with all data
+    const chunks = paginate && seriesData.length > MAX_COLS_PER_PAGE
+        ? Array.from({ length: Math.ceil(seriesData.length / MAX_COLS_PER_PAGE) }, (_, i) =>
+            seriesData.slice(i * MAX_COLS_PER_PAGE, i * MAX_COLS_PER_PAGE + MAX_COLS_PER_PAGE)
+        )
+        : [seriesData];
+
     return (
         <div className="w-full bg-white text-black p-4 font-sans print:p-0">
             <style>{`
                 @media print {
                     @page {
                         size: landscape;
-                        margin: 0.5cm;
+                        margin: 0.2cm;
+                    }
+                    html, body {
+                        height: auto !important;
+                        overflow: visible !important;
+                        margin: 0 !important;
                     }
                     body {
                         -webkit-print-color-adjust: exact;
@@ -210,70 +230,127 @@ const PrintableSchedule = ({
                     }
                     /* Ensure table borders print */
                     table, th, td {
-                        border: 4px solid black !important;
+                        border: 2px solid black !important;
+                        vertical-align: middle !important;
+                        padding: 0 2px !important; /* Force tight horizontal padding */
+                    }
+                    tr {
+                        break-inside: avoid;
+                    }
+                    tr.week-row {
+                        height: 2.85rem !important;
+                    }
+                    /* Bold bottom border for series header */
+                    td.print-bold-bottom {
+                        border-bottom-width: 3px !important;
                     }
                 }
                 .bg-rain-pattern {
+                    /* Cloud/Rain effect: Light blue background with subtle diagonal rain streaks */
+                    background-color: #eff6ff !important; /* sky-50 */
                     background-image: repeating-linear-gradient(
-                        45deg,
-                        #ffffff,
-                        #ffffff 10px,
-                        #bfdbfe 10px,   /* Tailwind blue-200 */
-                        #bfdbfe 20px
+                        135deg,
+                        transparent,
+                        transparent 5px,
+                        #bfdbfe 5px,   /* blue-200 */
+                        #bfdbfe 7px
                     ) !important;
-                    background-color: #eff6ff !important; /* Tailwind blue-50 fallback */
                     -webkit-print-color-adjust: exact !important;
                     print-color-adjust: exact !important;
                 }
+                .page-break {
+                    page-break-after: always; /* Legacy */
+                    break-after: page;        /* Modern */
+                }
             `}</style>
 
-            <table className="w-full border-collapse border-4 border-gray-400 text-xs sm:text-sm">
-                <tbody>
-                    {rows.map((row, rowIndex) => (
-                        <tr key={rowIndex}>
-                            {/* First Column: Label */}
-                            <td className="border-4 border-gray-400 p-1 font-bold bg-gray-100 print:bg-gray-100 w-24">
-                                {row.label}
-                            </td>
-                            {/* Subsequent Columns: Series Data */}
-                            {seriesData.map((series) => {
-                                const { text, hasRain } = getCellContent(series, row.type, row.weekIndex);
+            {chunks.map((chunkSeries, chunkIndex) => (
+                <div
+                    key={chunkIndex}
+                    className={`
+                        ${chunkIndex < chunks.length - 1 ? "page-break mb-8 print:mb-0" : ""}
+                        ${chunkIndex === currentPage ? 'block' : 'hidden print:block'}
+                    `}
+                >
+                    <table className="w-full border-collapse border-4 print:border-2 border-gray-400 text-sm print:text-[10px] table-fixed">
+                        {/* ... table content ... */}
+                        <colgroup>
+                            {showLegend && <col className="w-20 print:w-12" />}
+                            {chunkSeries.map(s => (
+                                <col key={s.series_id || s.season_name} />
+                            ))}
+                            {showDates && <col className="w-16 print:w-12" />}
+                            {showDates && <col className="w-16 print:w-12" />}
+                        </colgroup>
+                        <tbody>
+                            {rows.map((row, rowIndex) => {
+                                const isWeekRow = row.type === 'week';
+                                const rowClass = isWeekRow ? 'week-row h-14 print:h-auto' : 'h-auto';
+
                                 return (
-                                    <td
-                                        key={series.series_id || series.season_name}
-                                        className={`border-4 border-gray-400 p-1 text-center ${hasRain ? 'bg-rain-pattern' : ''}`}
-                                    >
-                                        {text}
-                                    </td>
+                                    <tr key={rowIndex} className={rowClass}>
+                                        {/* First Column: Legend (Optional) */}
+                                        {showLegend && (
+                                            <td className={`border-4 print:border-2 border-gray-400 p-1 print:p-0 font-bold whitespace-nowrap bg-gray-100 print:bg-gray-100 ${row.type === 'name' ? 'border-b-black print-bold-bottom' : ''}`}>
+                                                {row.label}
+                                            </td>
+                                        )}
+
+                                        {/* Series Columns (Dynamic equal width via table-fixed) */}
+                                        {chunkSeries.map((series) => {
+                                            const { text, hasRain } = getCellContent(series, row.type, row.weekIndex);
+                                            const isSeriesHeader = row.type === 'name';
+
+                                            let fontSizeClass = '';
+                                            if (isWeekRow) {
+                                                if (text && text.length > 100) fontSizeClass = 'text-[10px] print:text-[8px] leading-tight';
+                                                else if (text && text.length > 60) fontSizeClass = 'text-xs print:text-[9px] leading-tight';
+                                                else fontSizeClass = 'text-sm print:text-[11px]';
+                                            } else {
+                                                fontSizeClass = 'text-xs print:text-[10px]';
+                                            }
+
+                                            return (
+                                                <td
+                                                    key={series.series_id || series.season_name}
+                                                    className={`border-4 print:border-2 border-gray-400 p-1 print:p-0 text-center break-words ${hasRain ? 'bg-rain-pattern' : ''} ${isSeriesHeader ? 'font-extrabold border-b-black print-bold-bottom' : ''} ${fontSizeClass}`}
+                                                >
+                                                    {text}
+                                                </td>
+                                            );
+                                        })}
+
+                                        {/* Date Columns (Optional) */}
+                                        {showDates && (
+                                            row.type === 'name' ? (
+                                                <>
+                                                    <td className="border-4 print:border-2 border-gray-400 p-1 print:p-0 font-bold text-center bg-gray-100 print:bg-gray-100 whitespace-nowrap border-b-black print-bold-bottom">Start</td>
+                                                    <td className="border-4 print:border-2 border-gray-400 p-1 print:p-0 font-bold text-center bg-gray-100 print:bg-gray-100 whitespace-nowrap border-b-black print-bold-bottom">End</td>
+                                                </>
+                                            ) : row.type === 'week' ? (
+                                                <>
+                                                    <td className="border-4 print:border-2 border-gray-400 p-1 print:p-0 text-center whitespace-nowrap">
+                                                        {weekDates[row.weekIndex]?.start || ''}
+                                                    </td>
+                                                    <td className="border-4 print:border-2 border-gray-400 p-1 print:p-0 text-center whitespace-nowrap">
+                                                        {weekDates[row.weekIndex]?.end || ''}
+                                                    </td>
+                                                </>
+                                            ) : (
+                                                /* Empty cells for Time, License, Style rows */
+                                                <>
+                                                    <td className="border-4 print:border-2 border-gray-400 p-1 print:p-0 bg-gray-50"></td>
+                                                    <td className="border-4 print:border-2 border-gray-400 p-1 print:p-0 bg-gray-50"></td>
+                                                </>
+                                            )
+                                        )}
+                                    </tr>
                                 );
                             })}
-
-                            {/* Date Columns */}
-                            {row.type === 'name' ? (
-                                <>
-                                    <td className="border-4 border-gray-400 p-1 font-bold text-center w-16 bg-gray-100 print:bg-gray-100">Week Start</td>
-                                    <td className="border-4 border-gray-400 p-1 font-bold text-center w-16 bg-gray-100 print:bg-gray-100">Week End</td>
-                                </>
-                            ) : row.type === 'week' ? (
-                                <>
-                                    <td className="border-4 border-gray-400 p-1 text-center whitespace-nowrap">
-                                        {weekDates[row.weekIndex]?.start || ''}
-                                    </td>
-                                    <td className="border-4 border-gray-400 p-1 text-center whitespace-nowrap">
-                                        {weekDates[row.weekIndex]?.end || ''}
-                                    </td>
-                                </>
-                            ) : (
-                                /* Empty cells for Time, License, Style rows */
-                                <>
-                                    <td className="border-4 border-gray-400 p-1 bg-gray-50"></td>
-                                    <td className="border-4 border-gray-400 p-1 bg-gray-50"></td>
-                                </>
-                            )}
-                        </tr>
-                    ))}
-                </tbody>
-            </table>
+                        </tbody>
+                    </table>
+                </div>
+            ))}
         </div>
     );
 };

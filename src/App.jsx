@@ -36,6 +36,10 @@ const App = () => {
     const [tableSeriesData, setTableSeriesData] = useState([]);
     const [showCalendarTable, setShowCalendarTable] = useState(false);
     const [showPrintView, setShowPrintView] = useState(false); // New state for printable view
+    const [printShowLegend, setPrintShowLegend] = useState(true);
+    const [printShowDates, setPrintShowDates] = useState(true);
+    const [printPaginate, setPrintPaginate] = useState(true);
+    const [printCurrentPage, setPrintCurrentPage] = useState(0);
     const [showDataSourceSelector, setShowDataSourceSelector] = useState(false);
     const [message, setMessage] = useState('Please select a data source or upload a file.');
     const [isLoading, setIsLoading] = useState(false); // Start false, will be set true during loads
@@ -122,6 +126,7 @@ const App = () => {
 
     // State for the new Discipline filter
     const [selectedDisciplines, setSelectedDisciplines] = useState(() => new Set(getCookie('selectedDisciplines') ? JSON.parse(getCookie('selectedDisciplines')) : []));
+    const [showSelectedOnly, setShowSelectedOnly] = useState(false);
 
     const handleDisciplineChange = useCallback((discipline) => {
         setSelectedDisciplines(prev => {
@@ -466,13 +471,20 @@ const App = () => {
         return Array.from(carNames).join(', ');
     }, [carIdMap]);
 
-    // Further filter the series based on the new discipline filter
+    // Further filter the series based on the new discipline filter AND showSelectedOnly
     const seriesToDisplay = useMemo(() => {
-        if (selectedDisciplines.size === 0) {
-            return filteredSeries;
+        let result = filteredSeries;
+
+        if (selectedDisciplines.size > 0) {
+            result = result.filter(series => selectedDisciplines.has(series.discipline));
         }
-        return filteredSeries.filter(series => selectedDisciplines.has(series.discipline));
-    }, [filteredSeries, selectedDisciplines]);
+
+        if (showSelectedOnly) {
+            result = result.filter(series => selectedSeriesIds.has(series.series_id || series.season_name));
+        }
+
+        return result;
+    }, [filteredSeries, selectedDisciplines, showSelectedOnly, selectedSeriesIds]);
 
     const allSeriesSelected = useMemo(() => {
         if (seriesToDisplay.length === 0) return false;
@@ -614,13 +626,65 @@ const App = () => {
         const printData = seasonsData.filter(season => selectedSeriesIds.has(season.series_id || season.season_name));
 
         return (
-            <div className="bg-white min-h-screen text-black overflow-x-auto">
+            <div className="bg-white min-h-screen text-black overflow-x-auto print:overflow-visible print:min-h-0 print:h-auto">
                 <div className="p-4 print:hidden flex justify-between items-center bg-gray-200 border-b border-gray-400">
                     <h1 className="text-xl font-bold">Printable View</h1>
-                    <div className="flex gap-4">
+                    <div className="flex gap-4 items-center">
+                        <label className="flex items-center space-x-2 text-sm">
+                            <input
+                                type="checkbox"
+                                checked={printShowLegend}
+                                onChange={(e) => setPrintShowLegend(e.target.checked)}
+                                className="form-checkbox text-blue-600 rounded-sm focus:ring-blue-500"
+                            />
+                            <span>Show Legend</span>
+                        </label>
+                        <label className="flex items-center space-x-2 text-sm">
+                            <input
+                                type="checkbox"
+                                checked={printShowDates}
+                                onChange={(e) => setPrintShowDates(e.target.checked)}
+                                className="form-checkbox text-blue-600 rounded-sm focus:ring-blue-500"
+                            />
+                            <span>Show Dates</span>
+                        </label>
+
+                        <label className="flex items-center space-x-2 text-sm border-r border-gray-400 pr-4 mr-4">
+                            <input
+                                type="checkbox"
+                                checked={printPaginate}
+                                onChange={(e) => setPrintPaginate(e.target.checked)}
+                                className="form-checkbox text-blue-600 rounded-sm focus:ring-blue-500"
+                            />
+                            <span>Paginate</span>
+                        </label>
+
+                        {/* Pagination Controls */}
+                        {printPaginate && Math.ceil(seasonsData.filter(season => selectedSeriesIds.has(season.series_id || season.season_name)).length / 8) > 1 && (
+                            <div className="flex items-center gap-2 mr-4">
+                                <button
+                                    onClick={() => setPrintCurrentPage(prev => Math.max(0, prev - 1))}
+                                    disabled={printCurrentPage === 0}
+                                    className="px-2 py-1 bg-gray-300 rounded hover:bg-gray-400 disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    ◀
+                                </button>
+                                <span className="text-sm font-medium">
+                                    Page {printCurrentPage + 1} / {Math.ceil(seasonsData.filter(season => selectedSeriesIds.has(season.series_id || season.season_name)).length / 8)}
+                                </span>
+                                <button
+                                    onClick={() => setPrintCurrentPage(prev => Math.min(Math.ceil(seasonsData.filter(season => selectedSeriesIds.has(season.series_id || season.season_name)).length / 8) - 1, prev + 1))}
+                                    disabled={printCurrentPage >= Math.ceil(seasonsData.filter(season => selectedSeriesIds.has(season.series_id || season.season_name)).length / 8) - 1}
+                                    className="px-2 py-1 bg-gray-300 rounded hover:bg-gray-400 disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    ▶
+                                </button>
+                            </div>
+                        )}
+
                         <button
                             onClick={() => window.print()}
-                            className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+                            className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 mx-2"
                         >
                             Print / Save as PDF
                         </button>
@@ -642,6 +706,10 @@ const App = () => {
                     carConfigReplacements={carConfigReplacements}
                     applyCarListReplacements={applyCarListReplacements}
                     timeReplacements={timeReplacements}
+                    showLegend={printShowLegend}
+                    showDates={printShowDates}
+                    paginate={printPaginate}
+                    currentPage={printCurrentPage}
                 />
             </div>
         );
@@ -729,15 +797,19 @@ const App = () => {
                 {dataLoaded && !isLoading && (
                     <>
                         {/* Action Buttons */}
-                        <div className="flex flex-col sm:flex-row justify-center items-center gap-4 mb-8">
-                            <button onClick={generateCalendarTable} className="w-full sm:flex-1 bg-purple-600 text-white font-bold py-3 px-6 rounded-lg shadow-lg hover:bg-purple-700">Generate Schedule</button>
-                            <button onClick={handleReset} className="w-full sm:w-auto bg-red-600 text-white font-bold py-3 px-6 rounded-lg shadow-lg hover:bg-red-700 whitespace-nowrap">Reset</button>
-                            <div className="w-full sm:flex-1 flex flex-col sm:flex-row gap-4 justify-center">
-                                <a href={`${import.meta.env.BASE_URL}excel template/Template.xlsx`} download="iRacingScheduleTemplate.xlsx" className="w-full sm:w-1/3 bg-green-500 text-white font-bold py-3 px-4 text-center rounded-lg shadow-lg hover:bg-green-600 whitespace-nowrap">
-                                    Excel Template
-                                </a>
-                                <button onClick={handleGenerateCsv} className="w-full sm:w-2/3 bg-green-600 text-white font-bold py-3 px-6 rounded-lg shadow-lg hover:bg-green-700">Generate CSV</button>
-                            </div>
+                        <div className="flex flex-col lg:flex-row justify-center items-stretch lg:items-center gap-4 mb-8">
+                            <button onClick={generateCalendarTable} className="w-full lg:flex-1 bg-purple-600 text-white font-bold py-3 px-4 rounded-lg shadow-lg hover:bg-purple-700 whitespace-nowrap">Generate Schedule</button>
+                            <button onClick={handlePrintViewToggle} className="w-full lg:flex-1 bg-indigo-600 text-white font-bold py-3 px-4 rounded-lg shadow-lg hover:bg-indigo-700 whitespace-nowrap">
+                                <span className="mr-2" role="img" aria-label="print">🖨️</span>
+                                Print View
+                            </button>
+
+                            <button onClick={handleReset} className="w-full lg:w-auto bg-red-600 text-white font-bold py-3 px-6 rounded-lg shadow-lg hover:bg-red-700 whitespace-nowrap">Reset</button>
+
+                            <a href={`${import.meta.env.BASE_URL}excel template/Template.xlsx`} download="iRacingScheduleTemplate.xlsx" className="w-full lg:flex-1 bg-green-500 text-white font-bold py-3 px-4 text-center rounded-lg shadow-lg hover:bg-green-600 whitespace-nowrap">
+                                Excel Template
+                            </a>
+                            <button onClick={handleGenerateCsv} className="w-full lg:flex-1 bg-green-600 text-white font-bold py-3 px-4 rounded-lg shadow-lg hover:bg-green-700 whitespace-nowrap">Generate CSV</button>
                         </div>
 
                         {/* Container for Series List and Tracks Table */}
@@ -754,6 +826,15 @@ const App = () => {
                                     <label className="flex items-center space-x-2 cursor-pointer">
                                         <input type="checkbox" checked={allSeriesSelected} onChange={handleSelectAllChange} className="form-checkbox h-5 w-5 text-blue-600 rounded-sm focus:ring-blue-500" />
                                         <span className={`${isDarkMode ? 'text-neutral-100' : 'text-gray-700'}`}>Select All</span>
+                                    </label>
+                                    <label className="flex items-center space-x-2 cursor-pointer">
+                                        <input
+                                            type="checkbox"
+                                            checked={showSelectedOnly}
+                                            onChange={() => setShowSelectedOnly(prev => !prev)}
+                                            className="form-checkbox h-5 w-5 text-blue-600 rounded-sm focus:ring-blue-500"
+                                        />
+                                        <span className={`${isDarkMode ? 'text-neutral-100' : 'text-gray-700'}`}>Show Selected Only</span>
                                     </label>
                                     <label className="flex items-center space-x-2 cursor-pointer">
                                         <input
@@ -775,9 +856,6 @@ const App = () => {
                                     </label>
                                     <button onClick={handleSurpriseMe} className={`ml-auto px-3 py-1.5 text-sm rounded-md shadow-sm ${isDarkMode ? 'bg-yellow-600 hover:bg-yellow-500 text-white' : 'bg-yellow-400 hover:bg-yellow-500 text-black'}`}>
                                         <span role="img" aria-label="gift">🎁</span> Surprise Me
-                                    </button>
-                                    <button onClick={handlePrintViewToggle} className={`px-3 py-1.5 text-sm rounded-md shadow-sm ${isDarkMode ? 'bg-indigo-600 hover:bg-indigo-500 text-white' : 'bg-indigo-500 hover:bg-indigo-600 text-white'}`}>
-                                        <span role="img" aria-label="print">🖨️</span> Print View
                                     </button>
                                 </div>
                                 <div className="max-h-[60vh] overflow-y-auto">
