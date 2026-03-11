@@ -45,6 +45,9 @@ const App = () => {
     const [isLoading, setIsLoading] = useState(false); // Start false, will be set true during loads
     const [dataLoaded, setDataLoaded] = useState(false);
     const [carIdMap, setCarIdMap] = useState(new Map());
+    const [latestAvailableSchedule, setLatestAvailableSchedule] = useState(null);
+    const [loadedDataSource, setLoadedDataSource] = useState(null);
+    const [ignoreOutdatedWarning, setIgnoreOutdatedWarning] = useState(() => sessionStorage.getItem('ignoreOutdatedWarning') === 'true');
     const initialLoadPerformed = useRef(false);
     const initialTableGenerationAttempted = useRef(false); // To prevent re-generating table on every render
     // State for hover tooltip
@@ -167,9 +170,10 @@ const App = () => {
                     manifestData.sort((a, b) => b.localeCompare(a));
                     setAvailableFiles(manifestData);
                     if (manifestData.length > 0) {
+                        const defaultFile = manifestData.find(f => f.toLowerCase().endsWith('.pdf')) || manifestData[0];
+                        setLatestAvailableSchedule(defaultFile);
                         // If no data source is set from a cookie, default to the first PDF from the manifest, or just the first file.
                         if (!getCookie('selectedDataSource')) {
-                            const defaultFile = manifestData.find(f => f.toLowerCase().endsWith('.pdf')) || manifestData[0];
                             setSelectedDataSource(defaultFile);
                         }
                         setMessage('Please select a data source or upload a file.');
@@ -335,14 +339,15 @@ const App = () => {
     }, []);
 
     const handleLoadData = useCallback(async (options = {}) => {
-        const { clearSelections = true, isInitialAutoLoad = false } = options;
-        if (!selectedDataSource) { setMessage("Please select a file to load."); return; }
+        const { clearSelections = true, isInitialAutoLoad = false, overrideDataSource } = options;
+        const targetDataSource = overrideDataSource || selectedDataSource;
+        if (!targetDataSource) { setMessage("Please select a file to load."); return; }
         setIsLoading(true);
         setDataLoaded(false);
         setSeasonsData([]);
         setMessage('Loading data...');
         try {
-            const { type, data: fileData } = await loadFile(selectedDataSource, fileDataMap);
+            const { type, data: fileData } = await loadFile(targetDataSource, fileDataMap);
             let rawData;
             if (type === 'pdf') {
                 setMessage('Parsing PDF... This may take a moment.');
@@ -361,6 +366,7 @@ const App = () => {
             const processedData = processAndSetData(rawData);
             setSeasonsData(processedData);
             setDataLoaded(true);
+            setLoadedDataSource(targetDataSource);
             if (clearSelections) {
                 setSelectedSeriesIds(new Set());
                 setSelectedTrackTypes(new Set());
@@ -387,6 +393,18 @@ const App = () => {
             handleLoadData({ clearSelections: false, isInitialAutoLoad: true });
         }
     }, [selectedDataSource, handleLoadData]); // handleLoadData is memoized, selectedDataSource is the trigger
+
+    const handleLoadLatestSchedule = useCallback(() => {
+        if (latestAvailableSchedule) {
+            setSelectedDataSource(latestAvailableSchedule);
+            handleLoadData({ clearSelections: false, isInitialAutoLoad: false, overrideDataSource: latestAvailableSchedule });
+        }
+    }, [latestAvailableSchedule, handleLoadData]);
+
+    const handleIgnoreWarning = useCallback(() => {
+        setIgnoreOutdatedWarning(true);
+        sessionStorage.setItem('ignoreOutdatedWarning', 'true');
+    }, []);
 
     const generateCalendarTable = useCallback((customMessage) => {
         const selected = seasonsData.filter(season => selectedSeriesIds.has(season.series_id || season.season_name));
@@ -718,6 +736,35 @@ const App = () => {
     return (
         <div className={`min-h-screen p-4 font-inter transition-colors duration-300 overflow-x-hidden ${isDarkMode ? 'bg-neutral-950 text-neutral-100' : 'bg-gray-100 text-gray-800'}`}>
             <CookieConsentBanner onAccept={handleAcceptConsent} />
+
+            {latestAvailableSchedule && loadedDataSource && loadedDataSource !== latestAvailableSchedule && !ignoreOutdatedWarning && (
+                <div className={`w-full max-w-7xl mx-auto mb-4 p-4 rounded-md shadow-md flex flex-col sm:flex-row items-center justify-between gap-4 ${isDarkMode ? 'bg-red-900 text-white' : 'bg-red-600 text-white'}`}>
+                    <div className="flex items-center gap-3 text-center sm:text-left">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6 flex-shrink-0">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                        </svg>
+                        <p className="font-semibold">
+                            A newer schedule ({latestAvailableSchedule}) is available. You are currently viewing {loadedDataSource}.
+                        </p>
+                    </div>
+                    <div className="flex gap-2">
+                        <button
+                            onClick={handleIgnoreWarning}
+                            className={`whitespace-nowrap px-4 py-2 font-medium rounded shadow transition-colors ${isDarkMode ? 'bg-red-800 text-gray-200 hover:bg-red-700' : 'bg-red-700 text-white hover:bg-red-800'}`}
+                            title="Ignore for this session"
+                        >
+                            Ignore
+                        </button>
+                        <button
+                            onClick={handleLoadLatestSchedule}
+                            className={`whitespace-nowrap px-4 py-2 font-bold rounded shadow transition-colors ${isDarkMode ? 'bg-white text-red-900 hover:bg-gray-200' : 'bg-white text-red-700 hover:bg-gray-100'}`}
+                        >
+                            Load Latest Schedule
+                        </button>
+                    </div>
+                </div>
+            )}
+
             <style>{`::selection { background-color: #3b82f6; color: #ffffff; } .fade-enter { opacity: 0; } .fade-enter-active { opacity: 1; transition: opacity 200ms; } .fade-exit { opacity: 1; } .fade-exit-active { opacity: 0; transition: opacity 200ms; } .table-appear { opacity: 0; transform: translateY(20px); } .table-appear-active { opacity: 1; transform: translateY(0); transition: opacity 300ms, transform 300ms; } `}</style>
             <div className={`max-w-7xl mx-auto shadow-lg p-4 sm:p-6 transition-colors duration-300 ${isDarkMode ? 'bg-neutral-900' : 'bg-white'}`}>
                 <div className="flex justify-between items-center mb-6 sm:mb-8">
