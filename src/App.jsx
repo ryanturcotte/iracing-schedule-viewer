@@ -40,6 +40,84 @@ const App = () => {
     const [printShowDates, setPrintShowDates] = useState(true);
     const [printPaginate, setPrintPaginate] = useState(true);
     const [printCurrentPage, setPrintCurrentPage] = useState(0);
+
+    // New State for Paint Mode and Saved Views
+    const [isPaintModeActive, setIsPaintModeActive] = useState(false);
+    const [paintTool, setPaintTool] = useState({ type: null, color: null });
+    const [customCellStyles, setCustomCellStyles] = useState({});
+    const [savedViews, setSavedViews] = useState({});
+    const [viewNameInput, setViewNameInput] = useState('');
+    const [selectedViewToLoad, setSelectedViewToLoad] = useState('');
+    const [showPaintModeBanner, setShowPaintModeBanner] = useState(() => getCookie('hidePaintModeBanner') !== 'true');
+
+    // Load saved views from localStorage on initial mount
+    useEffect(() => {
+        try {
+            const saved = localStorage.getItem('iracing_saved_print_views');
+            if (saved) {
+                setSavedViews(JSON.parse(saved));
+            }
+        } catch (e) {
+            console.error("Could not load saved views from localStorage", e);
+        }
+    }, []);
+
+    const handleCellClick = useCallback((cellId) => {
+        if (!paintTool.type) return;
+
+        setCustomCellStyles(prev => {
+            const currentStyles = prev[cellId] || {};
+            
+            // If the user clicks with Eraser (null color)
+            if (paintTool.color === null) {
+                const nextStyles = { ...currentStyles };
+                // If it's a generic eraser, clear all
+                if (paintTool.type === 'all') {
+                    const { [cellId]: _, ...rest } = prev;
+                    return rest;
+                }
+                
+                delete nextStyles[paintTool.type];
+                if (paintTool.type === 'bg') {
+                    delete nextStyles['bg_pattern'];
+                }
+                
+                if (Object.keys(nextStyles).length === 0) {
+                    const { [cellId]: _, ...rest } = prev;
+                    return rest;
+                }
+                return { ...prev, [cellId]: nextStyles };
+            }
+            
+            // Handle format toggles (bold, underline, strikethrough)
+            if (paintTool.type === 'format') {
+                const formatKey = paintTool.color;
+                const nextStyles = { ...currentStyles };
+                
+                if (nextStyles[formatKey]) {
+                    delete nextStyles[formatKey];
+                } else {
+                    nextStyles[formatKey] = true;
+                }
+
+                if (Object.keys(nextStyles).length === 0) {
+                    const { [cellId]: _, ...rest } = prev;
+                    return rest;
+                }
+                return { ...prev, [cellId]: nextStyles };
+            }
+
+            // Otherwise apply the color or pattern
+            return {
+                ...prev,
+                [cellId]: {
+                    ...currentStyles,
+                    [paintTool.type]: paintTool.color
+                }
+            };
+        });
+    }, [paintTool]);
+
     const [showDataSourceSelector, setShowDataSourceSelector] = useState(false);
     const [message, setMessage] = useState('Please select a data source or upload a file.');
     const [isLoading, setIsLoading] = useState(false); // Start false, will be set true during loads
@@ -138,6 +216,52 @@ const App = () => {
             return newSet;
         });
     }, []);
+
+    const handleSaveView = useCallback(() => {
+        if (!viewNameInput.trim()) return;
+        const viewData = {
+            selectedSeriesIds: Array.from(selectedSeriesIds),
+            customCellStyles,
+            printShowLegend,
+            printShowDates,
+            printPaginate
+        };
+        const newSavedViews = { ...savedViews, [viewNameInput.trim()]: viewData };
+        setSavedViews(newSavedViews);
+        try {
+            localStorage.setItem('iracing_saved_print_views', JSON.stringify(newSavedViews));
+            alert(`View "${viewNameInput}" saved successfully!`);
+            setViewNameInput('');
+        } catch (e) {
+            console.error("Could not save view to localStorage", e);
+            alert("Failed to save view. You might be out of local storage space.");
+        }
+    }, [viewNameInput, selectedSeriesIds, customCellStyles, printShowLegend, printShowDates, printPaginate, savedViews]);
+
+    const handleLoadView = useCallback(() => {
+        if (!selectedViewToLoad || !savedViews[selectedViewToLoad]) return;
+        const viewData = savedViews[selectedViewToLoad];
+        
+        setSelectedSeriesIds(new Set(viewData.selectedSeriesIds || []));
+        setCustomCellStyles(viewData.customCellStyles || {});
+        
+        if (viewData.printShowLegend !== undefined) setPrintShowLegend(viewData.printShowLegend);
+        if (viewData.printShowDates !== undefined) setPrintShowDates(viewData.printShowDates);
+        if (viewData.printPaginate !== undefined) setPrintPaginate(viewData.printPaginate);
+    }, [selectedViewToLoad, savedViews, setSelectedSeriesIds]);
+
+    const handleDeleteView = useCallback((nameToDelete) => {
+        if (!window.confirm(`Are you sure you want to delete the saved view "${nameToDelete}"?`)) return;
+        const newSavedViews = { ...savedViews };
+        delete newSavedViews[nameToDelete];
+        setSavedViews(newSavedViews);
+        try {
+            localStorage.setItem('iracing_saved_print_views', JSON.stringify(newSavedViews));
+            if (selectedViewToLoad === nameToDelete) setSelectedViewToLoad('');
+        } catch (e) {
+            console.error("Could not delete view from localStorage", e);
+        }
+    }, [savedViews, selectedViewToLoad]);
 
     // Effect to save selections to cookies
     // Save cookies for 90 days, about the length of an iRacing season.
@@ -645,10 +769,11 @@ const App = () => {
 
         return (
             <div className="bg-white min-h-screen text-black overflow-x-auto print:overflow-visible print:min-h-0 print:h-auto">
-                <div className="p-4 print:hidden flex justify-between items-center bg-gray-200 border-b border-gray-400">
-                    <h1 className="text-xl font-bold">Printable View</h1>
-                    <div className="flex gap-4 items-center">
-                        <label className="flex items-center space-x-2 text-sm">
+                <div className="p-4 print:hidden flex flex-col gap-4 bg-gray-200 border-b border-gray-400">
+                    <div className="flex justify-between items-center w-full">
+                        <h1 className="text-xl font-bold">Printable View</h1>
+                        <div className="flex gap-4 items-center">
+                            <label className="flex items-center space-x-2 text-sm">
                             <input
                                 type="checkbox"
                                 checked={printShowLegend}
@@ -665,6 +790,16 @@ const App = () => {
                                 className="form-checkbox text-blue-600 rounded-sm focus:ring-blue-500"
                             />
                             <span>Show Dates</span>
+                        </label>
+
+                        <label className="flex items-center space-x-2 text-sm border-r border-gray-400 pr-4 mr-4">
+                            <input
+                                type="checkbox"
+                                checked={isMinimizerActive}
+                                onChange={(e) => setIsMinimizerActive(e.target.checked)}
+                                className="form-checkbox text-blue-600 rounded-sm focus:ring-blue-500"
+                            />
+                            <span>Minimize Text</span>
                         </label>
 
                         <label className="flex items-center space-x-2 text-sm border-r border-gray-400 pr-4 mr-4">
@@ -701,6 +836,18 @@ const App = () => {
                         )}
 
                         <button
+                            onClick={() => {
+                                setIsPaintModeActive(prev => !prev);
+                                if (isPaintModeActive) { // if turning off
+                                    setPaintTool({ type: null, color: null });
+                                }
+                            }}
+                            className={`px-4 py-2 rounded text-white font-medium mx-2 ${isPaintModeActive ? 'bg-indigo-700' : 'bg-indigo-500 hover:bg-indigo-600'}`}
+                        >
+                            {isPaintModeActive ? 'Close Paint Mode' : 'Paint Mode'}
+                        </button>
+
+                        <button
                             onClick={() => window.print()}
                             className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 mx-2"
                         >
@@ -712,6 +859,101 @@ const App = () => {
                         >
                             Back to App
                         </button>
+                        </div>
+                    </div>
+                    {/* Paint Palette UI */}
+                    {isPaintModeActive && (
+                        <div className="flex flex-wrap items-center gap-6 bg-white p-3 rounded shadow-inner border border-gray-300">
+                            <div className="font-bold text-sm">Paint Mode:</div>
+                            <div className="flex items-center gap-2 border-r border-gray-300 pr-4">
+                                <span className="text-xs text-gray-600 font-semibold mr-1">Background:</span>
+                                <button onClick={() => setPaintTool({ type: 'bg', color: '#fca5a5' })} className={`w-6 h-6 rounded-full bg-red-300 border-2 ${paintTool.type === 'bg' && paintTool.color === '#fca5a5' ? 'border-black scale-110 shadow' : 'border-transparent hover:scale-110'}`} title="Red Background"></button>
+                                <button onClick={() => setPaintTool({ type: 'bg', color: '#86efac' })} className={`w-6 h-6 rounded-full bg-green-300 border-2 ${paintTool.type === 'bg' && paintTool.color === '#86efac' ? 'border-black scale-110 shadow' : 'border-transparent hover:scale-110'}`} title="Green Background"></button>
+                                <button onClick={() => setPaintTool({ type: 'bg', color: '#93c5fd' })} className={`w-6 h-6 rounded-full bg-blue-300 border-2 ${paintTool.type === 'bg' && paintTool.color === '#93c5fd' ? 'border-black scale-110 shadow' : 'border-transparent hover:scale-110'}`} title="Blue Background"></button>
+                                <button onClick={() => setPaintTool({ type: 'bg', color: '#fde047' })} className={`w-6 h-6 rounded-full bg-yellow-300 border-2 ${paintTool.type === 'bg' && paintTool.color === '#fde047' ? 'border-black scale-110 shadow' : 'border-transparent hover:scale-110'}`} title="Yellow Background"></button>
+                                <label className={`w-6 h-6 rounded-full border-2 overflow-hidden flex items-center justify-center cursor-pointer ${paintTool.type === 'bg' && paintTool.color !== null && !['#fca5a5', '#86efac', '#93c5fd', '#fde047'].includes(paintTool.color) ? 'border-black scale-110 shadow' : 'border-gray-300 bg-gray-100 hover:scale-110'}`} title="Custom Background">
+                                    <span className="text-[10px]" title="Custom...">🎨</span>
+                                    <input type="color" className="absolute opacity-0 w-0 h-0" onChange={(e) => setPaintTool({ type: 'bg', color: e.target.value })} />
+                                </label>
+                                <button onClick={() => setPaintTool({ type: 'bg_pattern', color: 'bg-slashes-pattern' })} className={`w-6 h-6 rounded-full border-2 overflow-hidden relative ${paintTool.type === 'bg_pattern' && paintTool.color === 'bg-slashes-pattern' ? 'border-black scale-110 shadow' : 'border-transparent hover:scale-110'}`} title="Slashes Pattern">
+                                    <div className="absolute inset-0 bg-gray-200" style={{ backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 3px, rgba(0,0,0,0.2) 3px, rgba(0,0,0,0.2) 6px)' }}></div>
+                                </button>
+                                <button onClick={() => setPaintTool({ type: 'bg', color: null })} className={`px-2 py-0.5 text-xs border rounded ${paintTool.type === 'bg' && paintTool.color === null ? 'border-black bg-gray-200 shadow font-bold' : 'bg-gray-100 hover:bg-white border-gray-300'}`} title="Eraser">Clear BG</button>
+                            </div>
+                            <div className="flex items-center gap-2 border-r border-gray-300 pr-4">
+                                <span className="text-xs text-gray-600 font-semibold mr-1">Text:</span>
+                                <button onClick={() => setPaintTool({ type: 'fg', color: '#dc2626' })} className={`text-md font-bold leading-none ${paintTool.type === 'fg' && paintTool.color === '#dc2626' ? 'text-red-700 underline scale-110' : 'text-red-600 hover:scale-110'}`} title="Red Text">A</button>
+                                <button onClick={() => setPaintTool({ type: 'fg', color: '#16a34a' })} className={`text-md font-bold leading-none ${paintTool.type === 'fg' && paintTool.color === '#16a34a' ? 'text-green-700 underline scale-110' : 'text-green-600 hover:scale-110'}`} title="Green Text">A</button>
+                                <button onClick={() => setPaintTool({ type: 'fg', color: '#2563eb' })} className={`text-md font-bold leading-none ${paintTool.type === 'fg' && paintTool.color === '#2563eb' ? 'text-blue-700 underline scale-110' : 'text-blue-600 hover:scale-110'}`} title="Blue Text">A</button>
+                                <button onClick={() => setPaintTool({ type: 'fg', color: '#ca8a04' })} className={`text-md font-bold leading-none ${paintTool.type === 'fg' && paintTool.color === '#ca8a04' ? 'text-yellow-700 underline scale-110' : 'text-yellow-600 hover:scale-110'}`} title="Yellow Text">A</button>
+                                <label className={`w-6 h-6 ml-1 flex items-center justify-center border rounded cursor-pointer ${paintTool.type === 'fg' && paintTool.color !== null && !['#dc2626', '#16a34a', '#2563eb', '#ca8a04'].includes(paintTool.color) ? 'border-black shadow bg-gray-200 scale-110' : 'border-gray-300 bg-gray-50 hover:scale-110'}`} title="Custom Text Color">
+                                    <span className={`text-xs font-bold leading-none ${paintTool.type === 'fg' && paintTool.color !== null && !['#dc2626', '#16a34a', '#2563eb', '#ca8a04'].includes(paintTool.color) ? '' : 'text-gray-400'}`} style={paintTool.type === 'fg' && paintTool.color !== null && !['#dc2626', '#16a34a', '#2563eb', '#ca8a04'].includes(paintTool.color) ? {color: paintTool.color} : {}}>A</span>
+                                    <input type="color" className="absolute opacity-0 w-0 h-0" onChange={(e) => setPaintTool({ type: 'fg', color: e.target.value })} />
+                                </label>
+                                <button onClick={() => setPaintTool({ type: 'fg', color: null })} className={`ml-1 px-2 py-0.5 text-xs border rounded ${paintTool.type === 'fg' && paintTool.color === null ? 'border-black bg-gray-200 shadow font-bold' : 'bg-gray-100 hover:bg-white border-gray-300'}`} title="Eraser">Clear Text</button>
+                            </div>
+                            <div className="flex items-center gap-2 border-r border-gray-300 pr-4">
+                                <span className="text-xs text-gray-600 font-semibold mr-1">Format:</span>
+                                <button onClick={() => setPaintTool({ type: 'format', color: 'bold' })} className={`w-6 h-6 flex items-center justify-center rounded border ${paintTool.type === 'format' && paintTool.color === 'bold' ? 'border-black bg-gray-200 shadow' : 'border-gray-300 bg-gray-100 hover:bg-white'}`} title="Toggle Bold"><span className="font-bold font-serif">B</span></button>
+                                <button onClick={() => setPaintTool({ type: 'format', color: 'underline' })} className={`w-6 h-6 flex items-center justify-center rounded border ${paintTool.type === 'format' && paintTool.color === 'underline' ? 'border-black bg-gray-200 shadow' : 'border-gray-300 bg-gray-100 hover:bg-white'}`} title="Toggle Underline"><span className="underline font-serif">U</span></button>
+                                <button onClick={() => setPaintTool({ type: 'format', color: 'strikethrough' })} className={`w-6 h-6 flex items-center justify-center rounded border ${paintTool.type === 'format' && paintTool.color === 'strikethrough' ? 'border-black bg-gray-200 shadow' : 'border-gray-300 bg-gray-100 hover:bg-white'}`} title="Toggle Strikethrough"><span className="line-through font-serif">S</span></button>
+                            </div>
+                            <div className="flex items-center">
+                                <button onClick={() => setPaintTool({ type: 'all', color: null })} className={`px-2 py-1 text-xs border rounded bg-red-100 text-red-800 border-red-300 hover:bg-red-200 font-bold ${paintTool.type === 'all' && paintTool.color === null ? 'border-black shadow ring-1 ring-red-500' : ''}`} title="Clear All Formatting">🧹 Clear All</button>
+                            </div>
+                            <div className="ml-auto text-xs text-gray-500 italic flex items-center">
+                                {paintTool.type ? 'Click cells in the schedule below to apply.' : 'Select a tool to start painting cells.'}
+                            </div>
+                        </div>
+                    )}
+                    {/* Save/Load Views UI */}
+                    <div className="flex flex-col md:flex-row items-center justify-between gap-4 bg-white p-3 rounded shadow-inner border border-gray-300">
+                        <div className="flex items-center gap-2 w-full md:w-auto">
+                            <span className="font-bold text-sm mr-2 w-20">Save View:</span>
+                            <input 
+                                type="text" 
+                                value={viewNameInput} 
+                                onChange={(e) => setViewNameInput(e.target.value)} 
+                                placeholder="e.g. Endurance Racing" 
+                                className="border border-gray-300 rounded px-2 py-1 text-sm grow"
+                            />
+                            <button 
+                                onClick={handleSaveView} 
+                                disabled={!viewNameInput.trim() || selectedSeriesIds.size === 0}
+                                className="bg-green-600 text-white px-3 py-1 rounded text-sm hover:bg-green-700 disabled:opacity-50"
+                            >
+                                Save View
+                            </button>
+                        </div>
+                        <div className="flex items-center gap-2 w-full md:w-auto">
+                            <span className="font-bold text-sm mr-2">Load View:</span>
+                            <select 
+                                value={selectedViewToLoad} 
+                                onChange={(e) => setSelectedViewToLoad(e.target.value)}
+                                className="border border-gray-300 rounded px-2 py-1 text-sm bg-gray-50 max-w-48 grow"
+                            >
+                                <option value="" disabled>Select a saved view...</option>
+                                {Object.keys(savedViews).map(name => (
+                                    <option key={name} value={name}>{name}</option>
+                                ))}
+                            </select>
+                            <button 
+                                onClick={handleLoadView} 
+                                disabled={!selectedViewToLoad}
+                                className="bg-blue-600 text-white px-3 py-1 rounded text-sm hover:bg-blue-700 disabled:opacity-50"
+                            >
+                                Load
+                            </button>
+                            {selectedViewToLoad && (
+                                <button 
+                                    onClick={() => handleDeleteView(selectedViewToLoad)} 
+                                    className="bg-red-100 text-red-700 hover:bg-red-200 px-2 py-1 rounded text-sm border border-red-300"
+                                    title="Delete selected view"
+                                >
+                                    Delete
+                                </button>
+                            )}
+                        </div>
                     </div>
                 </div>
                 <PrintableSchedule
@@ -728,6 +970,9 @@ const App = () => {
                     showDates={printShowDates}
                     paginate={printPaginate}
                     currentPage={printCurrentPage}
+                    customCellStyles={customCellStyles}
+                    paintTool={paintTool}
+                    onCellClick={handleCellClick}
                 />
             </div>
         );
@@ -736,6 +981,23 @@ const App = () => {
     return (
         <div className={`min-h-screen p-4 font-inter transition-colors duration-300 overflow-x-hidden ${isDarkMode ? 'bg-neutral-950 text-neutral-100' : 'bg-gray-100 text-gray-800'}`}>
             <CookieConsentBanner onAccept={handleAcceptConsent} />
+
+            {showPaintModeBanner && (
+                <div className={`w-full max-w-7xl mx-auto mb-4 p-4 rounded-md shadow-md flex items-center justify-between gap-4 ${isDarkMode ? 'bg-indigo-900 border border-indigo-700 text-indigo-100' : 'bg-indigo-100 border border-indigo-200 text-indigo-900'}`}>
+                    <div className="flex items-center gap-3">
+                        <span className="text-xl">🎨</span>
+                        <div>
+                            <p className="font-semibold">New Feature: Paint Mode!</p>
+                            <p className="text-sm opacity-90">You can now customize cell colors and formatting in the Printable View. Please let me know if you encounter any bugs!</p>
+                        </div>
+                    </div>
+                    <button onClick={() => { setShowPaintModeBanner(false); setCookie('hidePaintModeBanner', 'true', 365); }} className="p-1 rounded-full hover:bg-black/10 dark:hover:bg-white/10 transition-colors shrink-0" aria-label="Dismiss">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                        </svg>
+                    </button>
+                </div>
+            )}
 
             {latestAvailableSchedule && loadedDataSource && loadedDataSource !== latestAvailableSchedule && !ignoreOutdatedWarning && (
                 <div className={`w-full max-w-7xl mx-auto mb-4 p-4 rounded-md shadow-md flex flex-col sm:flex-row items-center justify-between gap-4 ${isDarkMode ? 'bg-red-900 text-white' : 'bg-red-600 text-white'}`}>

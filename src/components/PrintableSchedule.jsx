@@ -14,7 +14,10 @@ const PrintableSchedule = ({
     showLegend,
     showDates,
     paginate,
-    currentPage = 0
+    currentPage = 0,
+    customCellStyles = {},
+    paintTool = { type: null, color: null },
+    onCellClick = () => {}
 }) => {
     // --- Date Calculation Logic (Adapted and aligned with CalendarTable) ---
     const allSchedules = seriesData.flatMap(s => s.schedules);
@@ -255,6 +258,16 @@ const PrintableSchedule = ({
                         #bfdbfe 5px,   /* blue-200 */
                         #bfdbfe 7px
                     ) !important;
+                    print-color-adjust: exact !important;
+                }
+                .bg-slashes-pattern {
+                    background-image: repeating-linear-gradient(
+                        45deg,
+                        transparent,
+                        transparent 3px,
+                        rgba(0,0,0,0.2) 3px,
+                        rgba(0,0,0,0.2) 6px
+                    ) !important;
                     -webkit-print-color-adjust: exact !important;
                     print-color-adjust: exact !important;
                 }
@@ -310,10 +323,37 @@ const PrintableSchedule = ({
                                                 fontSizeClass = 'text-xs print:text-[10px]';
                                             }
 
+                                            let cellId = '';
+                                            if (isWeekRow) {
+                                                cellId = `${series.series_id || series.season_name}-week-${row.weekIndex}`;
+                                            } else {
+                                                cellId = `${series.series_id || series.season_name}-${row.type}-header`;
+                                            }
+                                            
+                                            // Determine custom styles if present
+                                            const cellStyleObj = customCellStyles[cellId] || {};
+                                            const styleProp = {};
+                                            if (cellStyleObj.bg) styleProp.backgroundColor = cellStyleObj.bg;
+                                            if (cellStyleObj.fg) styleProp.color = cellStyleObj.fg;
+                                            if (cellStyleObj.bold) styleProp.fontWeight = 'bold';
+
+                                            let textDeco = [];
+                                            if (cellStyleObj.underline) textDeco.push('underline');
+                                            if (cellStyleObj.strikethrough) textDeco.push('line-through');
+                                            if (textDeco.length > 0) styleProp.textDecoration = textDeco.join(' ');
+
+                                            let extraClassNames = '';
+                                            if (cellStyleObj.bg_pattern) {
+                                                extraClassNames += ` ${cellStyleObj.bg_pattern}`;
+                                            }
+
                                             return (
                                                 <td
                                                     key={series.series_id || series.season_name}
-                                                    className={`border-4 print:border-2 border-gray-400 p-1 print:p-0 text-center break-words ${hasRain ? 'bg-rain-pattern' : ''} ${isSeriesHeader ? 'font-extrabold border-b-black print-bold-bottom' : ''} ${fontSizeClass}`}
+                                                    data-cell-id={cellId}
+                                                    onClick={() => { if (paintTool.type) onCellClick(cellId); }}
+                                                    style={styleProp}
+                                                    className={`border-4 print:border-2 border-gray-400 p-1 print:p-0 text-center break-words ${hasRain ? 'bg-rain-pattern' : ''} ${extraClassNames} ${isSeriesHeader ? 'font-extrabold border-b-black print-bold-bottom' : ''} ${fontSizeClass} ${paintTool.type ? 'cursor-crosshair hover:opacity-80' : ''}`}
                                                 >
                                                     {text}
                                                 </td>
