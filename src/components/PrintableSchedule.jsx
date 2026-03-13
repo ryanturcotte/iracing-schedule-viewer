@@ -347,13 +347,15 @@ const PrintableSchedule = ({
                                                 extraClassNames += ` ${cellStyleObj.bg_pattern}`;
                                             }
 
+                                            const applyRainPattern = hasRain && !cellStyleObj.bg && !cellStyleObj.bg_pattern;
+
                                             return (
                                                 <td
                                                     key={series.series_id || series.season_name}
                                                     data-cell-id={cellId}
                                                     onClick={() => { if (paintTool.type) onCellClick(cellId); }}
                                                     style={styleProp}
-                                                    className={`border-4 print:border-2 border-gray-400 p-1 print:p-0 text-center break-words ${hasRain ? 'bg-rain-pattern' : ''} ${extraClassNames} ${isSeriesHeader ? 'font-extrabold border-b-black print-bold-bottom' : ''} ${fontSizeClass} ${paintTool.type ? 'cursor-crosshair hover:opacity-80' : ''}`}
+                                                    className={`border-4 print:border-2 border-gray-400 p-1 print:p-0 text-center break-words ${applyRainPattern ? 'bg-rain-pattern' : ''} ${extraClassNames} ${isSeriesHeader ? 'font-extrabold border-b-black print-bold-bottom' : ''} ${fontSizeClass} ${paintTool.type ? 'cursor-crosshair hover:opacity-80' : ''}`}
                                                 >
                                                     {text}
                                                 </td>
