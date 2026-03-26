@@ -7,6 +7,8 @@ import TracksDisplayTable from './components/TracksDisplayTable';
 import CookieConsentBanner from './components/CookieConsentBanner';
 import CalendarTable from './components/CalendarTable';
 import PrintableSchedule from './components/PrintableSchedule';
+import ContentList from './components/ContentList';
+import { useContentOwnership } from './hooks/useContentOwnership';
 import { setCookie, getCookie } from './utils/cookies';
 import { formatTrackType } from './utils/formatting';
 import { generateCsv as exportToCsv } from './utils/csvExporter';
@@ -49,6 +51,8 @@ const App = () => {
     const [viewNameInput, setViewNameInput] = useState('');
     const [selectedViewToLoad, setSelectedViewToLoad] = useState('');
     const [showPaintModeBanner, setShowPaintModeBanner] = useState(() => getCookie('hidePaintModeBanner') !== 'true');
+
+    const { contentState, updateContent, importState, exportState } = useContentOwnership();
 
     // Load saved views from localStorage on initial mount
     useEffect(() => {
@@ -753,9 +757,10 @@ const App = () => {
             // Pass the car replacement logic and data to the CSV exporter
             applyCarListReplacements,
             carConfigReplacements,
+            contentState,
         });
         setMessage(result.message);
-    }, [seasonsData, selectedSeriesIds, isMinimizerActive, getCarsForWeek, applyCarListReplacements]);
+    }, [seasonsData, selectedSeriesIds, isMinimizerActive, getCarsForWeek, applyCarListReplacements, contentState]);
 
     const handlePrintViewToggle = useCallback(() => {
         setShowPrintView(prev => !prev);
@@ -1098,7 +1103,7 @@ const App = () => {
                 <TransitionGroup>
                     {showCalendarTable && tableSeriesData.length > 0 && (
                         <CSSTransition nodeRef={calendarTableRef} key="calendar-table-transition" timeout={500} classNames="table-appear" appear>
-                            <CalendarTable ref={calendarTableRef} seriesData={tableSeriesData} isDarkMode={isDarkMode} getCarsForWeek={getCarsForWeek} applyReplacements={applyReplacements} isMinimizerActive={isMinimizerActive} timeReplacements={timeReplacements} applyCarListReplacements={applyCarListReplacements} carConfigReplacements={carConfigReplacements} />
+                            <CalendarTable ref={calendarTableRef} seriesData={tableSeriesData} isDarkMode={isDarkMode} getCarsForWeek={getCarsForWeek} applyReplacements={applyReplacements} isMinimizerActive={isMinimizerActive} timeReplacements={timeReplacements} applyCarListReplacements={applyCarListReplacements} carConfigReplacements={carConfigReplacements} contentState={contentState} />
                         </CSSTransition>
                     )}
                 </TransitionGroup>
@@ -1120,6 +1125,17 @@ const App = () => {
                             </a>
                             <button onClick={handleGenerateCsv} className="w-full lg:flex-1 bg-green-600 text-white font-bold py-3 px-4 rounded-lg shadow-lg hover:bg-green-700 whitespace-nowrap">Generate CSV</button>
                         </div>
+
+                        <ContentList 
+                            selectedSeriesData={seasonsData}
+                            isDarkMode={isDarkMode}
+                            applyReplacements={applyReplacements}
+                            isMinimizerActive={isMinimizerActive}
+                            contentState={contentState}
+                            updateContent={updateContent}
+                            importState={importState}
+                            exportState={exportState}
+                        />
 
                         {/* Container for Series List and Tracks Table */}
                         <div className="flex flex-col md:flex-row gap-6 mb-8">

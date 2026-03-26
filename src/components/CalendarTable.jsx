@@ -1,8 +1,10 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { trackNameReplacements, trackConfigReplacements, carConfigReplacements } from '../replacementMappings';
 
-const CalendarTable = React.forwardRef(({ seriesData, isDarkMode, getCarsForWeek, applyReplacements, applyCarListReplacements, isMinimizerActive, timeReplacements: localTimeReplacements }, ref) => {
+const CalendarTable = React.forwardRef(({ seriesData, isDarkMode, getCarsForWeek, applyReplacements, applyCarListReplacements, isMinimizerActive, timeReplacements: localTimeReplacements, contentState }, ref) => {
     if (!seriesData || seriesData.length === 0) return null;
+
+    const [isExpanded, setIsExpanded] = useState(true);
 
     const now = new Date(); // The current moment in time (UTC based).
 
@@ -19,6 +21,35 @@ const CalendarTable = React.forwardRef(({ seriesData, isDarkMode, getCarsForWeek
         d.setUTCDate(d.getUTCDate() - daysToSubtract);
         d.setUTCHours(0, 0, 0, 0); // Ensure time is at the beginning of the day
         return d.getTime();
+    };
+
+    const getItemState = (season, schedule) => {
+        if (!contentState || !schedule) return 'Empty';
+        
+        let trackPart = '';
+        if (schedule.track && typeof schedule.track === 'object' && schedule.track.track_name) {
+            trackPart = schedule.track.track_name;
+        } else if (schedule.track_name) {
+            const separator = " - ";
+            const separatorIndex = schedule.track_name.lastIndexOf(separator);
+            if (separatorIndex !== -1) {
+                trackPart = schedule.track_name.substring(0, separatorIndex);
+            } else {
+                trackPart = schedule.track_name;
+            }
+        }
+        const cleanedTrackPart = trackPart.replace(/,?\s*Constant weather.*$/i, '').trim();
+        const finalTrackNameForState = isMinimizerActive ? applyReplacements(cleanedTrackPart, trackNameReplacements) : cleanedTrackPart;
+        const trackState = contentState.tracks?.[finalTrackNameForState] || 'Empty';
+
+        const isRingMeister = season.season_name.includes('Ring Meister');
+        if (isRingMeister) {
+            const carsList = getCarsForWeek(season, schedule);
+            const finalCarNameForState = isMinimizerActive ? applyCarListReplacements(carsList, carConfigReplacements) : carsList;
+            return contentState.cars?.[finalCarNameForState] || 'Empty';
+        }
+        
+        return trackState;
     };
 
     // --- Determine max season length ---
@@ -102,25 +133,48 @@ const CalendarTable = React.forwardRef(({ seriesData, isDarkMode, getCarsForWeek
     });
 
     return (
-        <div ref={ref} className={`mt-8 p-6 shadow-lg border ${isDarkMode ? 'bg-neutral-800 border-neutral-700' : 'bg-white border-gray-200'}`}>
-            <h2 className={`text-2xl font-semibold mb-4 ${isDarkMode ? 'text-neutral-200' : 'text-blue-700'}`}>Generated Calendar Schedule</h2>
-            <div className="overflow-x-auto">
-                <table className={`min-w-full divide-y ${isDarkMode ? 'border-neutral-700' : 'border-gray-200'}`}>
-                    <thead className={isDarkMode ? 'bg-neutral-900' : 'bg-gray-50'}>
+        <div ref={ref} className={`mt-8 p-6 shadow-lg border rounded-md transition-all duration-300 ${isDarkMode ? 'bg-neutral-800 border-neutral-700' : 'bg-white border-gray-200'}`}>
+            <div className="flex justify-between items-center cursor-pointer select-none" onClick={() => setIsExpanded(prev => !prev)}>
+                <h2 className={`text-2xl font-semibold flex items-center gap-2 ${isDarkMode ? 'text-neutral-200' : 'text-blue-700'}`}>
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={`w-6 h-6 transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+                    </svg>
+                    Generated Calendar Schedule
+                </h2>
+            </div>
+            {isExpanded && (
+                <div className="overflow-x-auto mt-4">
+                    <table className={`min-w-full divide-y ${isDarkMode ? 'border-neutral-700' : 'border-gray-200'}`}>
+                        <thead className={isDarkMode ? 'bg-neutral-900' : 'bg-gray-50'}>
                         <tr>
                             <th scope="col" className={`px-6 py-3 text-left text-xs font-medium ${isDarkMode ? 'text-neutral-300' : 'text-gray-500'} uppercase`}>Week</th>
                             <th scope="col" className={`px-3 py-3 text-left text-xs font-medium ${isDarkMode ? 'text-neutral-300' : 'text-gray-500'} uppercase`}>Start Date</th>
-                            {seriesData.map(season => (
-                                <th key={season.series_id || season.season_name} scope="col" className={`px-3 py-3 text-left text-xs font-medium ${isDarkMode ? 'text-neutral-300' : 'text-gray-500'} uppercase`}>
-                                    <div className="text-center">{season.season_name}</div> {/* Centered series name */}
-                                    {season.race_frequency && (
-                                        <div className={`text-[0.65rem] leading-tight ${isDarkMode ? 'text-neutral-400' : 'text-gray-400'} font-normal normal-case text-center`}> {/* Centered frequency */}
-                                            {applyReplacements(season.race_frequency, localTimeReplacements)}
-                                        </div>
-                                    )}
-                                </th>
+                            {seriesData.map(season => {
+                                let ownedCount = 0;
+                                let wishlistCount = 0;
+                                season.schedules?.forEach(sch => {
+                                    const state = getItemState(season, sch);
+                                    if (state === 'Purchased') ownedCount++;
+                                    if (state === 'Wishlist') wishlistCount++;
+                                });
 
-                            ))}
+                                return (
+                                    <th key={season.series_id || season.season_name} scope="col" className={`px-3 py-3 text-left text-xs font-medium ${isDarkMode ? 'text-neutral-300' : 'text-gray-500'} uppercase`}>
+                                        <div className="text-center">{season.season_name}</div> {/* Centered series name */}
+                                        {season.race_frequency && (
+                                            <div className={`text-[0.65rem] leading-tight ${isDarkMode ? 'text-neutral-400' : 'text-gray-400'} font-normal normal-case text-center`}> {/* Centered frequency */}
+                                                {applyReplacements(season.race_frequency, localTimeReplacements)}
+                                            </div>
+                                        )}
+                                        {contentState && (ownedCount > 0 || wishlistCount > 0) && (
+                                            <div className="text-center mt-1 space-x-2 text-[0.7rem] normal-case font-bold">
+                                                {ownedCount > 0 && <span className="text-green-600 dark:text-green-400">Own: {ownedCount}</span>}
+                                                {wishlistCount > 0 && <span className="text-yellow-600 dark:text-yellow-400">Wish: {wishlistCount}</span>}
+                                            </div>
+                                        )}
+                                    </th>
+                                );
+                            })}
                         </tr>
                     </thead>
                     <tbody className={`${isDarkMode ? 'bg-neutral-800' : 'bg-white'} divide-y ${isDarkMode ? 'divide-neutral-700' : 'divide-gray-200'}`}>
@@ -195,9 +249,18 @@ const CalendarTable = React.forwardRef(({ seriesData, isDarkMode, getCarsForWeek
                                                 // Append the rain chance information instead of replacing the track name
                                                 trackDisplayHtml += ` <span class="text-blue-400 font-normal">(${rainChance}%)</span>`;
                                             }
-                                            cellContentHtml = `<div class="flex flex-col">${trackDisplayHtml}<span class="text-xs ${isDarkMode ? 'text-neutral-400' : 'text-gray-600'}">${subTextForDisplay || ''}</span></div>`;
+                                            cellContentHtml = `<div class="flex flex-col justify-center">${trackDisplayHtml}<span class="text-xs ${isDarkMode ? 'text-neutral-400' : 'text-gray-600'}">${subTextForDisplay || ''}</span></div>`;
                                         }
-                                        return <td key={`${season.series_id || season.season_name}-${i}`} className={`px-3 py-4 whitespace-nowrap text-sm ${isDarkMode ? 'text-neutral-100' : 'text-gray-500'}`} dangerouslySetInnerHTML={{ __html: cellContentHtml }}></td>;
+
+                                        const itemState = schedule ? getItemState(season, schedule) : 'Empty';
+                                        let bgClass = '';
+                                        if (itemState === 'Purchased') {
+                                            bgClass = isDarkMode ? 'bg-green-900/40' : 'bg-green-100/60';
+                                        } else if (itemState === 'Wishlist') {
+                                            bgClass = isDarkMode ? 'bg-yellow-900/40' : 'bg-yellow-100/60';
+                                        }
+
+                                        return <td key={`${season.series_id || season.season_name}-${i}`} className={`px-3 py-4 text-sm ${bgClass} ${isDarkMode ? 'text-neutral-100' : 'text-gray-500'}`} dangerouslySetInnerHTML={{ __html: cellContentHtml }}></td>;
                                     })}
                                 </tr>
                             );
@@ -205,6 +268,7 @@ const CalendarTable = React.forwardRef(({ seriesData, isDarkMode, getCarsForWeek
                     </tbody>
                 </table>
             </div>
+            )}
         </div>
     );
 });

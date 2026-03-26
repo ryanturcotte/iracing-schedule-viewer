@@ -15,7 +15,7 @@ const applyReplacements = (text, replacementsList, isMinimizerActive) => {
     return newText;
 };
 
-export const generateCsv = ({ seasonsData, selectedSeriesIds, isMinimizerActive, getCarsForWeek, applyCarListReplacements, carConfigReplacements }) => {
+export const generateCsv = ({ seasonsData, selectedSeriesIds, isMinimizerActive, getCarsForWeek, applyCarListReplacements, carConfigReplacements, contentState }) => {
     const selected = seasonsData.filter(season => selectedSeriesIds.has(season.series_id || season.season_name));
     if (selected.length === 0) {
         return { success: false, message: 'Please select at least one series to generate CSV.' };
@@ -24,7 +24,7 @@ export const generateCsv = ({ seasonsData, selectedSeriesIds, isMinimizerActive,
     const escapeCsv = (str) => `"${String(str || '').replace(/"/g, '""')}"`;
 
     const dataRows = {
-        Time: ['Time'], License: ['License'], Style: ['Style'], Name: ['Name']
+        Time: ['Time'], License: ['License'], Style: ['Style'], Name: ['Name'], Owned: ['Owned'], Wishlist: ['Wishlist']
     };
     for (let i = 1; i <= 12; i++) {
         dataRows[`Track${i}`] = [`Track${i}`];
@@ -37,6 +37,43 @@ export const generateCsv = ({ seasonsData, selectedSeriesIds, isMinimizerActive,
         const seriesStyles = series.track_types?.map(tt => formatTrackType(tt.track_type)).filter(Boolean).join(' / ') || 'N/A';
         dataRows.Style.push(seriesStyles);
         dataRows.Name.push(series.season_name);
+
+        const getItemState = (season, schedule) => {
+            if (!contentState || !schedule) return 'Empty';
+            let trackPart = '';
+            if (schedule.track && typeof schedule.track === 'object' && schedule.track.track_name) {
+                trackPart = schedule.track.track_name;
+            } else if (schedule.track_name) {
+                const separator = " - ";
+                const separatorIndex = schedule.track_name.lastIndexOf(separator);
+                if (separatorIndex !== -1) {
+                    trackPart = schedule.track_name.substring(0, separatorIndex);
+                } else {
+                    trackPart = schedule.track_name;
+                }
+            }
+            const cleanedTrackPart = trackPart.replace(/,?\s*Constant weather.*$/i, '').trim();
+            const finalTrackNameForState = isMinimizerActive ? applyReplacements(cleanedTrackPart, trackNameReplacements, true) : cleanedTrackPart;
+            const trackState = contentState.tracks?.[finalTrackNameForState] || 'Empty';
+
+            if (season.season_name.includes('Ring Meister')) {
+                const carsList = getCarsForWeek(season, schedule);
+                const finalCarNameForState = isMinimizerActive ? applyCarListReplacements(carsList, carConfigReplacements) : carsList;
+                return contentState.cars?.[finalCarNameForState] || 'Empty';
+            }
+            return trackState;
+        };
+
+        let ownedCount = 0;
+        let wishlistCount = 0;
+        series.schedules.forEach(s => {
+            const state = getItemState(series, s);
+            if (state === 'Purchased') ownedCount++;
+            if (state === 'Wishlist') wishlistCount++;
+        });
+
+        dataRows.Owned.push(ownedCount.toString());
+        dataRows.Wishlist.push(wishlistCount.toString());
 
         for (let i = 0; i < 12; i++) {
             const schedule = series.schedules.find(s => s.race_week_num === i);
@@ -93,6 +130,13 @@ export const generateCsv = ({ seasonsData, selectedSeriesIds, isMinimizerActive,
 
                 if (rainChance > 0) {
                     cellData += ` (${rainChance}%)`;
+                }
+
+                const state = getItemState(series, schedule);
+                if (state === 'Purchased') {
+                    cellData = '*' + cellData;
+                } else if (state === 'Wishlist') {
+                    cellData = '$' + cellData;
                 }
             }
             dataRows[`Track${i + 1}`].push(cellData);
