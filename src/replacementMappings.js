@@ -108,7 +108,9 @@ export const carConfigReplacements = [
     { original: "NASCAR Truck Chevrolet Silverado, NASCAR Truck Ford F150, NASCAR Truck Toyota Tundra TRD Pro", replacement: "NASCAR Trucks" },
     { original: "Street Stock - Panther C1, Street Stock - Casino M2, Street Stock - Eagle T3", replacement: "Street Stocks" },
     { original: "BMW M4 GT3 EVO / Lamborghini Huracán GT3 EVO / Mercedes-AMG GT3 2020 / Porsche 911 GT3 R (992) / Ferrari 296 GT3 / Audi R8 LMS EVO II GT3 / Chevrolet Corvette Z06 GT3.R Ford Mustang GT3 / McLaren 720S GT3 EVO Acura NSX GT3 EVO 22 / Aston Martin Vantage GT3 EVO", replacement: "GT3" },
-    { original: "Skip Barber Formula 2000", replacement: "The Skippy" }
+    { original: "Skip Barber Formula 2000", replacement: "The Skippy" },
+    { original: "NASCAR O'Reilly Chevrolet Camaro / NASCAR O'Reilly Ford Mustang / NASCAR O'Reilly Toyota Supra", replacement: "NASCAR O'Reilly"},
+    { original: "NASCAR Truck Chevrolet Silverado / NASCAR Truck Ford F150 / NASCAR Truck Toyota Tundra TRD Pro / NASCAR Truck RAM", replacement: "NASCAR Trucks"}
 
 ];
 
