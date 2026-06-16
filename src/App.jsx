@@ -40,6 +40,7 @@ const App = () => {
     const [printShowDates, setPrintShowDates] = useState(true);
     const [printPaginate, setPrintPaginate] = useState(true);
     const [printCurrentPage, setPrintCurrentPage] = useState(0);
+    const [customSeriesOrder, setCustomSeriesOrder] = useState([]);
 
     // New State for Paint Mode and Saved Views
     const [isPaintModeActive, setIsPaintModeActive] = useState(false);
@@ -224,7 +225,8 @@ const App = () => {
             customCellStyles,
             printShowLegend,
             printShowDates,
-            printPaginate
+            printPaginate,
+            customSeriesOrder
         };
         const newSavedViews = { ...savedViews, [viewNameInput.trim()]: viewData };
         setSavedViews(newSavedViews);
@@ -245,6 +247,9 @@ const App = () => {
         setSelectedSeriesIds(new Set(viewData.selectedSeriesIds || []));
         setCustomCellStyles(viewData.customCellStyles || {});
         
+        // Ensure custom order is loaded, fallback to empty array
+        setCustomSeriesOrder(viewData.customSeriesOrder || []);
+
         if (viewData.printShowLegend !== undefined) setPrintShowLegend(viewData.printShowLegend);
         if (viewData.printShowDates !== undefined) setPrintShowDates(viewData.printShowDates);
         if (viewData.printPaginate !== undefined) setPrintPaginate(viewData.printPaginate);
@@ -761,11 +766,52 @@ const App = () => {
         setShowPrintView(prev => !prev);
     }, []);
 
+    const handleMoveSeries = useCallback((seriesId, direction) => {
+        setCustomSeriesOrder(prevOrder => {
+            const currentSelectedIds = seasonsData
+                .filter(season => selectedSeriesIds.has(season.series_id || season.season_name))
+                .map(s => s.series_id || s.season_name);
+
+            let newOrder = [...prevOrder];
+            
+            // Remove any IDs no longer naturally selected
+            newOrder = newOrder.filter(id => currentSelectedIds.includes(id));
+            
+            // Append newly selected series to the end
+            currentSelectedIds.forEach(id => {
+                if (!newOrder.includes(id)) newOrder.push(id);
+            });
+
+            const index = newOrder.indexOf(seriesId);
+            if (index === -1) return newOrder;
+            
+            const newIndex = index + direction;
+            if (newIndex < 0 || newIndex >= newOrder.length) return newOrder;
+
+            // Swap
+            const temp = newOrder[index];
+            newOrder[index] = newOrder[newIndex];
+            newOrder[newIndex] = temp;
+
+            return newOrder;
+        });
+    }, [seasonsData, selectedSeriesIds]);
+
     if (showPrintView) {
         // Filter `seasonsData` based on `selectedSeriesIds` to pass only selected series to the printable view.
-        // We can reuse `tableSeriesData` if the user has generated the table, OR we can just filter explicitly here.
-        // Explicit filtering ensures it reflects current selections even if "Generate Table" wasn't clicked lately.
-        const printData = seasonsData.filter(season => selectedSeriesIds.has(season.series_id || season.season_name));
+        let printData = seasonsData.filter(season => selectedSeriesIds.has(season.series_id || season.season_name));
+        
+        if (customSeriesOrder.length > 0) {
+            printData.sort((a, b) => {
+                const idA = a.series_id || a.season_name;
+                const idB = b.series_id || b.season_name;
+                let indexA = customSeriesOrder.indexOf(idA);
+                let indexB = customSeriesOrder.indexOf(idB);
+                if (indexA === -1) indexA = 999999;
+                if (indexB === -1) indexB = 999999;
+                return indexA - indexB;
+            });
+        }
 
         return (
             <div className="bg-white min-h-screen text-black overflow-x-auto print:overflow-visible print:min-h-0 print:h-auto">
@@ -973,6 +1019,7 @@ const App = () => {
                     customCellStyles={customCellStyles}
                     paintTool={paintTool}
                     onCellClick={handleCellClick}
+                    onMoveSeries={handleMoveSeries}
                 />
             </div>
         );

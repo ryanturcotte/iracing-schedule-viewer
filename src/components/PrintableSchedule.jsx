@@ -17,7 +17,8 @@ const PrintableSchedule = ({
     currentPage = 0,
     customCellStyles = {},
     paintTool = { type: null, color: null },
-    onCellClick = () => {}
+    onCellClick = () => {},
+    onMoveSeries = () => {}
 }) => {
     // --- Date Calculation Logic (Adapted and aligned with CalendarTable) ---
     const allSchedules = seriesData.flatMap(s => s.schedules);
@@ -355,9 +356,29 @@ const PrintableSchedule = ({
                                                     data-cell-id={cellId}
                                                     onClick={() => { if (paintTool.type) onCellClick(cellId); }}
                                                     style={styleProp}
-                                                    className={`border-4 print:border-2 border-gray-400 p-1 print:p-0 text-center break-words ${applyRainPattern ? 'bg-rain-pattern' : ''} ${extraClassNames} ${isSeriesHeader ? 'font-extrabold border-b-black print-bold-bottom' : ''} ${fontSizeClass} ${paintTool.type ? 'cursor-crosshair hover:opacity-80' : ''}`}
+                                                    className={`border-4 print:border-2 border-gray-400 p-1 print:p-0 text-center break-words ${applyRainPattern ? 'bg-rain-pattern' : ''} ${extraClassNames} ${isSeriesHeader ? 'border-b-black print-bold-bottom' : ''} ${fontSizeClass} ${paintTool.type ? 'cursor-crosshair hover:opacity-80' : ''}`}
                                                 >
-                                                    {text}
+                                                    {isSeriesHeader ? (
+                                                        <div className="flex flex-col items-center">
+                                                            <div className="flex w-full justify-between items-center print:hidden mb-1 px-1">
+                                                                <button
+                                                                    onClick={(e) => { e.stopPropagation(); onMoveSeries(series.series_id || series.season_name, -1); }}
+                                                                    className="text-gray-400 hover:text-blue-600 focus:outline-none bg-white hover:bg-gray-100 rounded shadow-xs leading-none p-1"
+                                                                    title="Move Left"
+                                                                >
+                                                                    ◀
+                                                                </button>
+                                                                <button
+                                                                    onClick={(e) => { e.stopPropagation(); onMoveSeries(series.series_id || series.season_name, 1); }}
+                                                                    className="text-gray-400 hover:text-blue-600 focus:outline-none bg-white hover:bg-gray-100 rounded shadow-xs leading-none p-1"
+                                                                    title="Move Right"
+                                                                >
+                                                                    ▶
+                                                                </button>
+                                                            </div>
+                                                            <span className="font-extrabold">{text}</span>
+                                                        </div>
+                                                    ) : text}
                                                 </td>
                                             );
                                         })}
